@@ -552,6 +552,7 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .dp .fn, .dp .ln { display: block; }
 .dp .fn { font-size: 11px; line-height: 1.1; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp .ln { font-family: var(--f-display); font-size: 14px; font-weight: 700; line-height: 1.05; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
+.dp .by { display: block; margin-top: 2px; font-family: var(--f-display); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp.empty { background: rgba(10, 23, 51, .5); border: 1px dashed var(--line); box-shadow: none; }
 .dboard.play .dp:not(.empty) { animation: deal .55s cubic-bezier(.2, .9, .3, 1.3) both; }
 .dboard.play .dp:not(.empty)::after { animation: deal-shine .9s ease-out both; animation-delay: inherit; }
@@ -1339,7 +1340,7 @@ function bracketView(lg, s) {
   cols.push(`<div class="bk-col"><div class="bk-h">Championship</div><div class="bk-body">${card(fin, 5)}</div></div>`);
   cols.push(`<div class="bk-col bk-champ"><div class="bk-h">Champion</div><div class="bk-body">
     <div class="bk-crown ${champ ? "" : "pending"}">${trophy("bk-tro", champ ? "gold" : "dim")}${champ ? av(champ, "lg") : ""}<span class="nm">${champ ? esc(teamName(s, champ)) : s.status === "in-progress" ? "To be decided" : "Not recorded"}</span></div></div></div>`);
-  const help = seeded ? "" : `<p class="muted" style="font-size:13px">Add a <b>Seed</b> (1–${P}) for each playoff team on the Standings tab and the bracket fills in. Playoff results come from the Games tab (Round: ${P === 8 ? "Quarterfinal, " : P === 6 ? "Wild Card, " : ""}Semifinal, Championship).</p>`;
+  const help = seeded || s.status === "in-progress" ? "" : `<p class="muted" style="font-size:13px">Add a <b>Seed</b> (1–${P}) for each playoff team on the Standings tab and the bracket fills in. Playoff results come from the Games tab (Round: ${P === 8 ? "Quarterfinal, " : P === 6 ? "Wild Card, " : ""}Semifinal, Championship).</p>`;
   return `<section class="section"><div class="section-head"><h2 class="sec-title">${s.year} playoffs</h2><span class="muted">${P}-team bracket${P === 6 ? " · seeds 1 and 2 get a first-round bye" : ""}</span></div>
     <div class="bracket-wrap"><div class="bracket cols-${cols.length}">${cols.join("")}</div></div>${help}</section>`;
 }
@@ -1382,38 +1383,43 @@ function draftView(lg, s) {
     ? `${esc(lg.short)} is a dynasty league: rosters carry over from year to year, so this is the ${s.year} draft (the startup draft in year one, rookies after that).`
     : `${esc(lg.short)} is a redraft league: every team drafts a brand-new roster each year.`;
   if (!s.draft.length) return `<p class="muted">${intro}</p>` + soon(`${s.year} draft coming soon`, "Every pick, round by round: who drafted whom.");
-  // Columns are the teams in round-1 order; each pick lands in its team's column on its round's row.
+  // Like Sleeper's board: one column per draft slot, headed by the team that picked there in round 1.
+  // Each pick sits in its slot's column; a traded pick says who actually made it.
   const rounds = [...new Set(s.draft.map(d => d.round))].sort((a, b) => (a ?? 99) - (b ?? 99));
-  const cols = [...new Set(s.draft.filter(d => d.round === rounds[0]).map(d => d.id))];
-  for (const d of s.draft) if (!cols.includes(d.id)) cols.push(d.id);
-  const n = cols.length;
+  const byPick = (a, b) => (a.pick ?? 9999) - (b.pick ?? 9999);
+  const r1 = s.draft.filter(d => d.round === rounds[0]).sort(byPick);
+  const n = Math.max(r1.length, 1);
+  const cols = r1.map(d => d.id);
+  // Redraft drafts and a dynasty's startup (its first season) are snake; dynasty rookie drafts after that run in the same order every round.
+  const snake = rounds.length > 1 && !(lg.type === "Dynasty" && s.year > (lg.founded || s.year));
   const cell = {};
   for (const d of s.draft) {
     const row = (cell[d.round] ||= Array(n).fill(null));
-    let c = cols.indexOf(d.id);
-    if (row[c]) c = row.indexOf(null); // a team with two picks in a round (traded pick) takes a free spot
+    const ri = rounds.indexOf(d.round);
+    const k = d.pick == null ? null : d.pick > n ? d.pick - ri * n : d.pick; // 1-based spot within the round
+    let c = k == null || k < 1 || k > n ? -1 : snake && ri % 2 ? n - k : k - 1;
+    if (c < 0 || row[c]) c = row.indexOf(null);
     if (c >= 0) row[c] = d;
   }
-  // Snake: round 2 starts with the team that picked last in round 1.
-  const r2 = s.draft.find(d => d.round === rounds[1]);
-  const snake = !!r2 && cols.indexOf(r2.id) === n - 1;
   const posKey = p => ({ DST: "DEF", "D/ST": "DEF", PK: "K" })[p] || p;
   const POS = ["QB", "RB", "WR", "TE", "K", "DEF"];
   const count = p => s.draft.filter(d => posKey(d.pos) === p).length;
   const order = s.draft.slice().sort((a, b) => (a.pick ?? 9999) - (b.pick ?? 9999));
-  const card = (d, rd) => {
+  const card = (d, rd, colId) => {
     if (!d) return `<div class="dp empty"></div>`;
+    // A traded pick can land under another team's column: name who actually made it.
+    const by = colId && colId !== d.id ? `<span class="by">by ${esc(teamName(s, d.id))}</span>` : "";
     const p = posKey(d.pos), k = d.pick == null ? null : d.pick > n ? d.pick - ((rd || 1) - 1) * n : d.pick;
     const parts = String(d.player).trim().split(/\s+/), last = parts.length > 1 ? parts.slice(1).join(" ") : parts[0], first = parts.length > 1 ? parts[0] : "";
     return `<div class="dp dpos-${POS.includes(p) ? p : "X"}" data-p="${esc(p)}" style="animation-delay:${order.indexOf(d) * 22}ms" title="${esc(`${d.player} · ${d.pos || "—"} · ${d.nfl || "—"} · ${teamName(s, d.id)}`)}">
       <span class="top"><b>${rd ?? "—"}.${k == null ? "—" : String(k).padStart(2, "0")}</b><span>${esc(p || "—")}${d.nfl ? " · " + esc(d.nfl) : ""}</span></span>
-      <span><span class="fn">${esc(first)}</span><span class="ln">${esc(last)}</span></span></div>`;
+      <span><span class="fn">${esc(first)}</span><span class="ln">${esc(last)}</span>${by}</span></div>`;
   };
   return `<p class="muted">${intro}</p>
   <div class="dbar">${POS.filter(count).map(p => `<button class="dchip dpos-${p}" data-dfilter="${p}" aria-pressed="false">${p} <b>${count(p)}</b></button>`).join("")}<button class="dchip replay" data-dreplay>Replay draft</button></div>
   <div class="dboard-wrap"><div class="dboard play" style="--n:${n}">
     <div></div>${cols.map(id => `<div class="dhead">${av(id)}<a ${go("players/" + id)}>${esc(teamName(s, id))}</a></div>`).join("")}
-    ${rounds.map((rd, i) => `<div class="dround">R${rd ?? "—"}${snake ? `<i>${i % 2 ? "←" : "→"}</i>` : ""}</div>${(cell[rd] || []).map(d => card(d, rd)).join("")}`).join("")}
+    ${rounds.map((rd, i) => `<div class="dround">R${rd ?? "—"}${snake ? `<i>${i % 2 ? "←" : "→"}</i>` : ""}</div>${(cell[rd] || []).map((d, c) => card(d, rd, cols[c])).join("")}`).join("")}
   </div></div>
   <p class="muted" style="font-size:13px">${s.draft.length} picks${snake ? ", snake order" : ""}. Tap a position to highlight it, or replay the draft.</p>`;
 }
