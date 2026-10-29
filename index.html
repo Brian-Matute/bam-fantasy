@@ -1198,7 +1198,8 @@ function leagueView(lg) {
 
 function allTimeView(lg) {
   const roster = leagueRoster(lg).map(id => leagueStats(lg, id))
-    .sort((a, b) => b.titles - a.titles || b.finals - a.finals || wpct(b) - wpct(a) || b.pf - a.pf || b.played - a.played || nm(a.id).localeCompare(nm(b.id)));
+    // Titles, then finals, then total wins (fewer losses breaks a tie), then points.
+    .sort((a, b) => b.titles - a.titles || b.finals - a.finals || (b.w + b.t / 2) - (a.w + a.t / 2) || a.l - b.l || b.pf - a.pf || nm(a.id).localeCompare(nm(b.id)));
   const titleCount = {};
   const latestDone = [...lg.seasons].reverse().find(s => s.champion);
   const plaques = lg.seasons.map((s, i) => {
