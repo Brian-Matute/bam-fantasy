@@ -27,6 +27,13 @@ img { max-width: 100%; }
 .ico .ball, .ico .ring, .ico .sparkle { transform-box: fill-box; }
 .ico-football .ball { transform-origin: center; animation: ball-spin 2.4s linear infinite; }
 @keyframes ball-spin { to { transform: rotate(360deg); } }
+.ico-ghost .gh, .ico-ghost .eyes, .ico-ghost .wisp { transform-box: fill-box; transform-origin: center; }
+.ico-ghost .gh { animation: ghost-float 2.6s ease-in-out infinite; }
+@keyframes ghost-float { 0%, 100% { transform: translateY(2px) rotate(-4deg); } 50% { transform: translateY(-3px) rotate(4deg); } }
+.ico-ghost .eyes { animation: ghost-blink 4s infinite; }
+@keyframes ghost-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+.ico-ghost .wisp { animation: ghost-wisp 2.6s ease-in-out infinite; }
+@keyframes ghost-wisp { 0%, 100% { opacity: .2; transform: translateY(3px); } 50% { opacity: .9; transform: translateY(-2px); } }
 .ico-swords .ring { transform-origin: center; animation: ball-spin 9s linear infinite; }
 .ico .shine { animation: shine 3.2s ease-in-out infinite; }
 @keyframes shine { 0%, 35% { transform: skewX(-20deg) translateX(0); } 75%, 100% { transform: skewX(-20deg) translateX(110px); } }
@@ -552,7 +559,10 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .dp .fn, .dp .ln { display: block; }
 .dp .fn { font-size: 11px; line-height: 1.1; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp .ln { font-family: var(--f-display); font-size: 14px; font-weight: 700; line-height: 1.05; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
-.dp .by { display: block; margin-top: 2px; font-family: var(--f-display); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpos { display: inline-block; font-family: var(--f-display); font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 1px 6px; border-radius: 5px; color: #fff; background: color-mix(in srgb, var(--c) 55%, transparent); border: 1px solid var(--c); vertical-align: 1px; }
+.tnfl { font-family: var(--f-num); font-size: 12px; color: var(--muted); }
+.dp .by { display: block; margin-top: 3px; font-family: var(--f-display); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp .by.traded { opacity: 1; justify-self: start; display: inline-block; max-width: 100%; padding: 1px 6px; border-radius: 999px; background: rgba(3, 9, 22, .55); color: var(--gold); box-shadow: 0 0 0 1px rgba(255, 209, 102, .55); }
 .dp.empty { background: rgba(10, 23, 51, .5); border: 1px dashed var(--line); box-shadow: none; }
 .dboard.play .dp:not(.empty) { animation: deal .55s cubic-bezier(.2, .9, .3, 1.3) both; }
 .dboard.play .dp:not(.empty)::after { animation: deal-shine .9s ease-out both; animation-delay: inherit; }
@@ -627,7 +637,7 @@ const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce
 let D = { managers: [], leagues: [] }, M = {}, L = {};
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const slug = s => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+const slug = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const nm = id => (M[id] && M[id].name) || id || "—";
 const initials = n => String(n).split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 const pts = n => (n == null ? "—" : Number(n).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 }));
@@ -772,7 +782,7 @@ function build(t) {
   }
   for (const r of t.Draft) {
     const s = season(r.league, r.year); if (!s || !r.player) continue;
-    s.draft.push({ round: numOrNull(r.round), pick: numOrNull(r.pick), id: who(r.manager, s), player: r.player, pos: (r.position || "").toUpperCase(), nfl: (r.nflteam || "").toUpperCase() });
+    s.draft.push({ round: numOrNull(r.round), pick: numOrNull(r.pick), id: who(r.manager, s), orig: r.originalteam ? who(r.originalteam, s) : null, player: r.player, pos: (r.position || "").toUpperCase(), nfl: (r.nflteam || "").toUpperCase() });
   }
   const items = v => String(v || "").split(/[;\n,]/).map(x => x.trim()).filter(Boolean);
   for (const r of t.Trades) {
@@ -871,7 +881,12 @@ const LOGOS = {
     <rect class="pick" x="22" y="50" width="20" height="3.5" rx="1.75" fill="#E6F1FF"/>
   </svg>`
 };
-const LOGO_FOR = { gridiron: "football", augustus: "crown", "big-ten": "swords" };
+LOGOS.ghost = `<svg class="ico ico-ghost" viewBox="0 0 64 64" aria-hidden="true"><g class="gh">
+    <path class="body" d="M14 54V28a18 18 0 0 1 36 0v26l-6-5-6 5-6-5-6 5-6-5z" fill="currentColor" fill-opacity=".18" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+    <g class="eyes"><ellipse cx="25" cy="29" rx="3.2" ry="4.4" fill="#E6F1FF"/><ellipse cx="39" cy="29" rx="3.2" ry="4.4" fill="#E6F1FF"/></g>
+    <ellipse cx="32" cy="39" rx="3" ry="3.6" fill="#E6F1FF" fill-opacity=".85"/>
+  </g><g class="wisp"><circle cx="54" cy="14" r="2" fill="currentColor"/><circle cx="58" cy="8" r="1.3" fill="currentColor"/></g></svg>`;
+const LOGO_FOR = { gridiron: "ghost", augustus: "crown", "big-ten": "swords" };
 
 /* Trophies. kind: "gold" (default), "silver" or "dim" (champion not decided yet). Every one shines and sparkles. */
 function trophy(cls, kind) {
@@ -907,10 +922,17 @@ function sceneGridiron() {
   const r = rand(11);
   const yard = Array.from({ length: 11 }, (_, i) => `<line x1="${120 + i * 76}" y1="190" x2="${i * 100}" y2="300" stroke="currentColor" stroke-opacity="${i % 5 === 0 ? .7 : .35}" stroke-width="${i % 5 === 0 ? 2 : 1.2}"/>`).join("");
   const post = x => `<g stroke="#FFD166" stroke-width="4" stroke-linecap="round" fill="none" filter="url(#gGlow)"><path d="M${x} 252V176M${x - 26} 176h52M${x - 26} 176V92M${x + 26} 176V92"/>${anim("stroke-opacity", ".75;1;.75", "2.4s")}</g>`;
-  const person = (x, dir, armVals, keyTimes) => `<g stroke="#E6F1FF" stroke-width="4" stroke-linecap="round" fill="none" filter="url(#gGlow)">
-      <animateTransform attributeName="transform" type="translate" values="0 0;0 -2;0 0" dur="1.5s" repeatCount="indefinite"/>
-      <circle cx="${x}" cy="200" r="9" fill="#E6F1FF"/><path d="M${x} 211v33M${x} 244l-12 28M${x} 244l12 28M${x} 216l${-14 * dir} 20"/>
-      <path d="M${x} 216l${22 * dir} -18">${rot(armVals.map(a => `${a} ${x} 216`).join(";"), "3s", `keyTimes="${keyTimes}"`)}</path></g>`;
+  // Two ghosts float over the field tossing the ball: a wavy-tailed sheet with blinking eyes, one arm throwing.
+  const ghost = (x, dir, armVals, keyTimes) => {
+    const tail = o => `M${x - 24} 262V206a24 24 0 0 1 48 0v56` + [0, 1, 2, 3, 4, 5].map(i => `l-8 ${i % 2 === o ? -8 : 8}`).join("") + "z";
+    return `<g filter="url(#gGlow)">
+      <animateTransform attributeName="transform" type="translate" values="0 0;0 -10;0 0" dur="2.4s" repeatCount="indefinite" begin="${dir > 0 ? 0 : -1.2}s"/>
+      <path d="${tail(0)}" fill="#E6F1FF" fill-opacity=".9" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round">${anim("d", `${tail(0)};${tail(1)};${tail(0)}`, ".9s")}</path>
+      <g fill="#071129"><ellipse cx="${x - 9}" cy="206" rx="4" ry="6">${anim("ry", "6;6;.6;6;6", "4s", 'keyTimes="0;0.9;0.94;0.98;1"')}</ellipse><ellipse cx="${x + 9}" cy="206" rx="4" ry="6">${anim("ry", "6;6;.6;6;6", "4s", 'keyTimes="0;0.9;0.94;0.98;1"')}</ellipse>
+        <ellipse cx="${x}" cy="224" rx="4.5" ry="5.5">${anim("ry", "5.5;3.5;5.5", "2.4s")}</ellipse></g>
+      <path d="M${x - 20 * dir} 230q${-12 * dir} 4 ${-16 * dir} 14" fill="none" stroke="#E6F1FF" stroke-width="7" stroke-linecap="round" opacity=".9"/>
+      <path d="M${x + 20 * dir} 226l${18 * dir} -14" fill="none" stroke="#E6F1FF" stroke-width="7" stroke-linecap="round">${rot(armVals.map(a => `${a} ${x + 20 * dir} 226`).join(";"), "3s", `keyTimes="${keyTimes}"`)}</path></g>`;
+  };
   // Crowd: a row of heads behind the far sideline, with camera flashes going off.
   let crowd = "M120 190";
   for (let x = 120; x < 880; x += 14) crowd += `L${x} ${182 - (x % 28 ? 2 : 0)}a6 6 0 0 1 12 0`;
@@ -934,8 +956,9 @@ function sceneGridiron() {
     <g clip-path="url(#gClip)"><rect x="-300" y="180" width="260" height="130" fill="url(#gSweep)"><animate attributeName="x" values="-300;1100" dur="6s" repeatCount="indefinite"/></rect></g>
     ${post(60)}${post(940)}
     <ellipse cx="500" cy="276" rx="9" ry="3" fill="#000" opacity=".35"><animate attributeName="cx" values="345;655;345" dur="3s" repeatCount="indefinite"/></ellipse>
-    ${person(330, 1, [-50, 30, 5, 5, -20, -50], "0;0.08;0.25;0.75;0.92;1")}
-    ${person(670, -1, [-5, -5, 20, 50, -30, -5, -5], "0;0.25;0.42;0.5;0.58;0.75;1")}
+    ${[330, 670].map(x => `<ellipse cx="${x}" cy="284" rx="22" ry="4" fill="#000" opacity=".3">${anim("rx", "22;15;22", "2.4s", `begin="${x < 500 ? 0 : -1.2}s"`)}</ellipse>`).join("")}
+    ${ghost(330, 1, [-50, 30, 5, 5, -20, -50], "0;0.08;0.25;0.75;0.92;1")}
+    ${ghost(670, -1, [-5, -5, 20, 50, -30, -5, -5], "0;0.25;0.42;0.5;0.58;0.75;1")}
     <path id="gArc" d="M345 196Q500 40 655 196" fill="none" stroke="#FFD166" stroke-opacity=".25" stroke-width="2" stroke-dasharray="4 8">${anim("stroke-dashoffset", "0;-24", "1s")}</path>
     <g filter="url(#gGlow)">${FOOTBALL()}<animateMotion dur="3s" repeatCount="indefinite" rotate="auto" keyPoints="0;1;0" keyTimes="0;0.5;1" calcMode="linear"><mpath href="#gArc" xlink:href="#gArc"/></animateMotion></g>
   </svg>`;
@@ -1401,14 +1424,20 @@ function draftView(lg, s) {
     if (c < 0 || row[c]) c = row.indexOf(null);
     if (c >= 0) row[c] = d;
   }
+  // Each column is headed by the team that owned that draft slot (Original Team), not whoever ended up picking there.
+  for (let c = 0; c < n; c++) {
+    const o = rounds.map(rd => cell[rd] && cell[rd][c]).find(d => d && d.orig);
+    if (o) cols[c] = o.orig;
+  }
   const posKey = p => ({ DST: "DEF", "D/ST": "DEF", PK: "K" })[p] || p;
   const POS = ["QB", "RB", "WR", "TE", "K", "DEF"];
   const count = p => s.draft.filter(d => posKey(d.pos) === p).length;
   const order = s.draft.slice().sort((a, b) => (a.pick ?? 9999) - (b.pick ?? 9999));
   const card = (d, rd, colId) => {
     if (!d) return `<div class="dp empty"></div>`;
-    // A traded pick can land under another team's column: name who actually made it.
-    const by = colId && colId !== d.id ? `<span class="by">by ${esc(teamName(s, d.id))}</span>` : "";
+    // Every card names who made the pick; a pick made from another team's slot (a traded pick) is flagged.
+    const traded = colId && colId !== d.id;
+    const by = `<span class="by${traded ? " traded" : ""}">${traded ? "&#8644; " : ""}${esc(teamName(s, d.id))}</span>`;
     const p = posKey(d.pos), k = d.pick == null ? null : d.pick > n ? d.pick - ((rd || 1) - 1) * n : d.pick;
     const parts = String(d.player).trim().split(/\s+/), last = parts.length > 1 ? parts.slice(1).join(" ") : parts[0], first = parts.length > 1 ? parts[0] : "";
     return `<div class="dp dpos-${POS.includes(p) ? p : "X"}" data-p="${esc(p)}" style="animation-delay:${order.indexOf(d) * 22}ms" title="${esc(`${d.player} · ${d.pos || "—"} · ${d.nfl || "—"} · ${teamName(s, d.id)}`)}">
@@ -1444,13 +1473,32 @@ document.addEventListener("click", e => {
 function tradesView(s) {
   if (!s.trades.length) return soon(`No trades recorded for ${s.year}`, "Every trade that went down this season shows here: who sent what, and when.");
   const swap = `<svg class="swap" viewBox="0 0 40 40" aria-hidden="true"><g class="a1"><path d="M6 14h26l-6-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g><g class="a2"><path d="M34 26H8l6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
-  return `<div class="trades">${s.trades.map((t, i) => `<article class="trade" ${stagger(i, 60)}>
-    <span class="when">${[t.week ? "Week " + t.week : "", t.date].filter(Boolean).map(esc).join(" · ") || "Trade"}</span>
-    <div class="side">${mgrTeam(s, t.a)}<span class="gets">Receives</span><ul>${t.aGets.map(x => `<li>${esc(x)}</li>`).join("") || "<li class='muted'>—</li>"}</ul></div>
+  // "Joe Burrow (QB CIN)" shows the name with a position tag in its draft-board color and the NFL team.
+  const item = x => {
+    const m = /^(.*?)\s*\((QB|RB|WR|TE|K|DEF|DST)(?:\s+([A-Z]{2,3}))?\)$/.exec(x);
+    if (!m) return `<li>${esc(x)}</li>`;
+    const p = m[2] === "DST" ? "DEF" : m[2];
+    return `<li>${esc(m[1])} <span class="tpos dpos-${p}">${p}</span>${m[3] ? ` <span class="tnfl">${esc(m[3])}</span>` : ""}</li>`;
+  };
+  const newest = tradeOrder() === "new";
+  const list = s.trades.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.week ?? 0) - (b.week ?? 0));
+  if (newest) list.reverse();
+  return `<div class="dbar">${[["new", "Most recent"], ["old", "Oldest"]].map(([k, label]) => `<button class="dchip" data-tsort="${k}" aria-pressed="${(k === "new") === newest}">${label}</button>`).join("")}</div>
+  <div class="trades">${list.map((t, i) => `<article class="trade" ${stagger(i, 60)}>
+    <span class="when">${[t.week ? "Week " + t.week : "Offseason", t.date].filter(Boolean).map(esc).join(" · ")}</span>
+    <div class="side">${mgrTeam(s, t.a)}<span class="gets">Receives</span><ul>${t.aGets.map(item).join("") || "<li class='muted'>—</li>"}</ul></div>
     ${swap}
-    <div class="side">${mgrTeam(s, t.b)}<span class="gets">Receives</span><ul>${t.bGets.map(x => `<li>${esc(x)}</li>`).join("") || "<li class='muted'>—</li>"}</ul></div>
+    <div class="side">${mgrTeam(s, t.b)}<span class="gets">Receives</span><ul>${t.bGets.map(item).join("") || "<li class='muted'>—</li>"}</ul></div>
     ${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}</article>`).join("")}</div>`;
 }
+// Trade order (most recent or oldest first) is remembered on this device.
+function tradeOrder() { try { return localStorage.getItem("bam-trade-order") === "old" ? "old" : "new"; } catch (e) { return "new"; } }
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-tsort]");
+  if (!b) return;
+  try { localStorage.setItem("bam-trade-order", b.dataset.tsort); } catch (e) {}
+  const y = window.scrollY; render(); window.scrollTo(0, y);
+});
 
 function loreView(s) {
   const lore = s.lore ? `<div class="panel"><p class="lore">${esc(s.lore)}</p></div>` : soon("Lore drop coming soon", `The story of the ${s.year} season (the rivalries, the trades, the collapse nobody saw coming) goes here.`);
