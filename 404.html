@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BAM Fantasy</title>
+<script>
+  // GitHub Pages shows this page for any address that isn't a real file, such as
+  // /bam-fantasy/augustus/2025. It sends the visitor to the site's main page with the
+  // requested page in ?p=, and the main page then shows it at the clean address.
+  //
+  // keep = how many folders at the start of the address belong to the site itself.
+  // username.github.io/bam-fantasy  -> 1 (the repository name)
+  // a custom domain like bamfantasy.com -> 0
+  var keep = /\.github\.io$/i.test(location.hostname) ? 1 : 0;
+  var parts = location.pathname.split("/");
+  var base = parts.slice(0, 1 + keep).join("/") + "/";
+  var rest = parts.slice(1 + keep).join("/");
+  location.replace(base + (rest ? "?p=" + encodeURIComponent(rest) : "") + location.hash);
+</script>
+</head>
+<body style="background:#040A18"></body>
+</html>
