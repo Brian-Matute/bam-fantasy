@@ -708,6 +708,7 @@ function build(t) {
     const s = season(r.league, r.year); if (!s) continue;
     s.status = /progress|live|current|active/i.test(r.status) ? "in-progress" : "complete";
     s.teams = numOrNull(r.teams);
+    s.weeks = numOrNull(r.weeks);
     s.note = r.note || "";
     s.champion = who(r.champion, s);
     s.runnerUp = who(r.runnerup, s);
@@ -1313,7 +1314,8 @@ function lineupTable(list, label) {
 }
 
 function weeksView(lg, s) {
-  const maxWeek = Math.max(lg.weeks, ...s.games.map(g => g.week));
+  // A season's own Weeks (Seasons tab) wins over the league's, for years with a shorter schedule.
+  const maxWeek = Math.max(s.weeks || lg.weeks, ...s.games.map(g => g.week));
   const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
   return `<div class="weeks-list">${weeks.map((w, i) => {
     const games = s.games.filter(g => g.week === w);
