@@ -1387,8 +1387,9 @@ function weeksView(lg, s) {
   const maxWeek = Math.max(s.weeks || lg.weeks, ...s.games.map(g => g.week));
   const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
   return `<div class="weeks-list">${weeks.map((w, i) => {
-    const games = s.games.filter(g => g.week === w);
-    const round = (games.find(g => g.round && !/regular/i.test(g.round)) || {}).round;
+    // Playoff games first, and the week is named for its playoff round (Wild Card, Semifinal, Championship), never a consolation game.
+    const games = s.games.filter(g => g.week === w).sort((a, b) => isPlayoffRound(b.round) - isPlayoffRound(a.round));
+    const round = (games.find(g => isPlayoffRound(g.round)) || {}).round;
     return `<details class="wk" ${stagger(i, 25)}><summary><span class="wn">Week ${w}</span>${round ? `<span class="round">${esc(round)}</span>` : ""}
       <span class="meta">${games.length ? `${games.length} matchup${games.length === 1 ? "" : "s"}` : "No results yet"}</span><span class="chev"></span></summary>
       <div class="wk-body">${games.length ? games.map(g => {
