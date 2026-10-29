@@ -719,7 +719,7 @@ function build(t) {
     const s = season(r.league, r.year), id = who(r.manager, s); if (!s || !id) continue;
     // A roster row with no wins, losses or ties yet means "played this season, record not added yet".
     const hasRec = [r.wins, r.losses, r.ties].some(v => v !== "" && v != null);
-    s.standings.push({ id, hasRec, w: int0(r.wins), l: int0(r.losses), t: int0(r.ties), pf: numOrNull(r.pointsfor), pa: numOrNull(r.pointsagainst), finish: numOrNull(r.finish), seed: numOrNull(r.seed), madePlayoffs: yesNo(r.madeplayoffs), playoffWins: numOrNull(r.playoffwins) });
+    s.standings.push({ id, hasRec, w: int0(r.wins), l: int0(r.losses), t: int0(r.ties), pf: numOrNull(r.pointsfor), pa: numOrNull(r.pointsagainst), rank: numOrNull(r.rank), finish: numOrNull(r.finish), seed: numOrNull(r.seed), madePlayoffs: yesNo(r.madeplayoffs), playoffWins: numOrNull(r.playoffwins) });
   }
   for (const r of t.Games) {
     const s = season(r.league, r.year), wk = int0(r.week); if (!s || !wk) continue;
@@ -1200,13 +1200,14 @@ function seasonView(lg, s, tab) {
     : `<section class="crown-hero pending"><div class="top">${trophy("big-tro", "dim")}<div><div class="label">${s.year} ${esc(lg.short)} champion</div>
         <div class="name">${s.status === "in-progress" ? "Still being decided" : "Not recorded yet"}</div>${s.status === "in-progress" ? `<div style="margin-top:8px"><span class="live-dot">Season live</span></div>` : ""}</div></div></section>`;
 
+  // The table is the regular season: Rank sets the order, so a playoff run (Finish) never moves anyone.
   const rows = s.standings.map(x => ({ ...x, ...seasonRow(s, x.id) }))
-    .sort((a, b) => (a.finish || 99) - (b.finish || 99) || (b.w + b.t / 2) - (a.w + a.t / 2) || (b.pf || 0) - (a.pf || 0) || teamName(s, a.id).localeCompare(teamName(s, b.id)));
-  const anyRec = rows.some(x => x.hasRec || x.finish);
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99) || (b.w + b.t / 2) - (a.w + a.t / 2) || (b.pf || 0) - (a.pf || 0) || (a.finish || 99) - (b.finish || 99) || teamName(s, a.id).localeCompare(teamName(s, b.id)));
+  const anyRec = rows.some(x => x.hasRec || x.rank || x.finish);
   const badge = x => x.id === s.champion ? `<span class="badge-s gold">Champion</span>` : x.id === s.runnerUp ? `<span class="badge-s silver">Runner-up</span>` : x.madePlayoffs ? `<span class="badge-s po">Playoffs</span>` : "";
   const standings = rows.length
     ? `<div class="tablewrap"><table><thead><tr><th class="rk">#</th><th>Manager</th><th class="n">Record</th><th class="n">Win %</th><th class="n">Points for</th><th class="n">Points against</th><th>Result</th></tr></thead><tbody>
-      ${rows.map((x, i) => `<tr ${stagger(i)}><td class="rk ${x.id === s.champion ? "gold" : ""}">${x.finish || (anyRec ? i + 1 : "—")}</td><td>${mgrTeam(s, x.id)}</td><td class="n">${x.hasRec ? rec(x.w, x.l, x.t) : "—"}</td><td class="n">${x.hasRec ? pct(x) : "—"}</td><td class="n">${pts(x.pf)}</td><td class="n">${pts(x.pa)}</td><td>${badge(x)}</td></tr>`).join("")}
+      ${rows.map((x, i) => `<tr ${stagger(i)}><td class="rk ${x.id === s.champion ? "gold" : ""}">${x.rank || (anyRec ? i + 1 : "—")}</td><td>${mgrTeam(s, x.id)}</td><td class="n">${x.hasRec ? rec(x.w, x.l, x.t) : "—"}</td><td class="n">${x.hasRec ? pct(x) : "—"}</td><td class="n">${pts(x.pf)}</td><td class="n">${pts(x.pa)}</td><td>${badge(x)}</td></tr>`).join("")}
       </tbody></table></div>
       ${anyRec ? "" : `<p class="muted" style="font-size:13px">The ${rows.length} teams that played this season. Records, points and finishes go in once they're added.</p>`}`
     : soon("Standings coming soon", "Each manager's record, points for and points against go here, with their headshot.");
