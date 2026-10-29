@@ -603,7 +603,7 @@ const go = r => `href="${BASE}${r === "home" ? "" : r}" data-r="${r}"`;
 const plink = id => M[id] ? `<a ${go("players/" + id)}>${esc(nm(id))}</a>` : esc(nm(id));
 const lgtag = lg => `<a class="lgtag" style="--c:${lg.color}" ${go(lg.id)}>${esc(lg.short)}</a>`;
 // Bump IMG_VERSION whenever the photos in the images folder are replaced, so browsers load the new ones.
-const IMG_VERSION = "2026-10-29b";
+const IMG_VERSION = "2026-10-29c";
 const imgUrl = u => !u ? "" : /^(https?:)?\/\//i.test(u) || u.startsWith("data:") ? u : BASE + u.replace(/^\.?\//, "") + "?v=" + IMG_VERSION;
 function av(id, size) {
   const m = M[id], cls = "av" + (size ? " " + size : "");
