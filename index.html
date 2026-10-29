@@ -561,6 +561,11 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .dp .ln { font-family: var(--f-display); font-size: 14px; font-weight: 700; line-height: 1.05; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
 .tpos { display: inline-block; font-family: var(--f-display); font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 1px 6px; border-radius: 5px; color: #fff; background: color-mix(in srgb, var(--c) 55%, transparent); border: 1px solid var(--c); vertical-align: 1px; }
 .tnfl { font-family: var(--f-num); font-size: 12px; color: var(--muted); }
+.records td { vertical-align: top; }
+.rec-cell { display: grid; gap: 3px; justify-items: start; }
+.rec-cell .rpts { font-size: 20px; color: var(--ink); }
+.rec-cell .rsub { font-size: 12px; }
+.trade .when .lgtag { margin-right: 4px; vertical-align: 1px; }
 .dp .by { display: block; margin-top: 3px; font-family: var(--f-display); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp .by.traded { opacity: 1; justify-self: start; display: inline-block; max-width: 100%; padding: 1px 6px; border-radius: 999px; background: rgba(3, 9, 22, .55); color: var(--gold); box-shadow: 0 0 0 1px rgba(255, 209, 102, .55); }
 .dp.empty { background: rgba(10, 23, 51, .5); border: 1px dashed var(--line); box-shadow: none; }
@@ -765,6 +770,12 @@ function build(t) {
     s.lore = r.lore || "";
     const cs = numOrNull(r.championscore), rs = numOrNull(r.runnerupscore);
     if (s.champion && s.runnerUp && (cs != null || rs != null)) s.championship = { week: numOrNull(r.championshipweek), winner: { id: s.champion, score: cs }, loser: { id: s.runnerUp, score: rs } };
+    // League highs typed in for seasons without full data; they win over what the site works out itself.
+    s.highs = {
+      season: r.highseasonteam ? { id: who(r.highseasonteam, s), pts: numOrNull(r.highseasonpoints) } : null,
+      week: r.highweekteam ? { id: who(r.highweekteam, s), pts: numOrNull(r.highweekpoints), week: numOrNull(r.highweek) } : null,
+      player: r.highplayer ? { player: r.highplayer, pts: numOrNull(r.highplayerpoints), week: numOrNull(r.highplayerweek) } : null
+    };
   }
   for (const r of t.Standings) {
     const s = season(r.league, r.year), id = who(r.manager, s); if (!s || !id) continue;
@@ -1073,7 +1084,7 @@ function findLeague(s) { return L[s] || D.leagues.find(l => slug(l.name) === s);
 function parse(r) {
   const p = String(r || "").toLowerCase().split("/").filter(Boolean);
   if (!p.length || p[0] === "home") return { v: "home" };
-  if (p[0] === "players") return p[1] && M[p[1]] ? { v: "player", id: p[1] } : { v: "players" };
+  if (p[0] === "players") return p[1] && M[p[1]] ? { v: "player", id: p[1], tab: p[2] === "trades" ? "trades" : "career" } : { v: "players" };
   if (p.length === 1 && p[0].startsWith("player-") && M[p[0].slice(7)]) return { v: "player", id: p[0].slice(7) };
   let key = p[0], sub = p[1], tab = p[2];
   const old = p.length === 1 && p[0].match(/^(.+)-(\d{4})$/);
@@ -1087,7 +1098,7 @@ function parse(r) {
 }
 function routeOf(p) {
   if (p.v === "players") return "players";
-  if (p.v === "player") return "players/" + p.id;
+  if (p.v === "player") return "players/" + p.id + (p.tab === "trades" ? "/trades" : "");
   if (p.v === "league") return p.lg.id;
   if (p.v === "alltime") return p.lg.id + "/all-time";
   if (p.v === "season") return p.lg.id + "/" + p.s.year + (p.tab !== "weeks" ? "/" + p.tab : "");
@@ -1251,7 +1262,48 @@ function allTimeView(lg) {
         : soon("Managers coming soon", "Add this league's managers on the Members tab and they'll be listed here with their all-time numbers.")}
       <p class="muted" style="font-size:13px">Titles = championships won. Finals = championship game appearances (won or lost).</p>
     </section>
+    ${recordsView(lg)}
   </div>`;
+}
+
+// Each season's highs: most points over the season, most in one week, and the best single game by an NFL player.
+// Highs typed on the Seasons tab win; otherwise they're worked out from standings, games and lineups.
+function seasonHighs(s) {
+  const h = s.highs || {};
+  let season = h.season, week = h.week, player = h.player;
+  if (!season) {
+    const top = s.standings.filter(x => x.pf != null).sort((a, b) => b.pf - a.pf)[0];
+    if (top) season = { id: top.id, pts: top.pf };
+  }
+  // Only a season with every week entered (not just its playoff games) can say which week was highest.
+  if (!week && s.games.some(g => g.week === 1)) for (const g of s.games) for (const [id, p] of [[g.home, g.homeScore], [g.away, g.awayScore]])
+    if (id && p != null && (!week || p > week.pts)) week = { id, pts: p, week: g.week };
+  if (!player) for (const [k, rows] of Object.entries(s.lineups)) for (const x of rows)
+    if (x.pts != null && (!player || x.pts > player.pts)) player = { player: `${x.player}${x.pos ? ` (${x.pos}${x.nfl ? " " + x.nfl : ""})` : ""}`, pts: x.pts, week: +k.split("|")[0], id: k.split("|")[1], bench: isBench(x.slot) };
+  return { season, week, player };
+}
+function recordsView(lg) {
+  const years = [...lg.seasons].reverse().map(s => ({ s, h: seasonHighs(s) })).filter(({ h }) => h.season || h.week || h.player);
+  if (!years.length) return "";
+  const best = k => years.reduce((top, y) => y.h[k] && (!top || y.h[k].pts > top.h[k].pts) ? y : top, null);
+  const tops = { season: best("season"), week: best("week"), player: best("player") };
+  const crown = (y, k) => years.length > 1 && tops[k] === y ?` <span class="badge-s gold">League record</span>` : "";
+  const cell = (y, k) => {
+    const x = y.h[k];
+    if (!x) return `<td class="muted">—</td>`;
+    const live = y.s.status === "in-progress" && k === "season" ? " so far" : "";
+    const who = k === "player"
+      ? `<span class="rp">${playerTag(x.player)}</span>${x.id ? `<span class="muted rsub">for ${esc(teamName(y.s, x.id))}${x.bench ? " (on the bench)" : ""}</span>` : ""}`
+      : mgrTeam(y.s, x.id);
+    return `<td><div class="rec-cell">${who}<span class="rpts num">${pts(x.pts)}</span><span class="muted rsub">${k === "season" ? "points" + live : "Week " + (x.week || "?")}</span>${crown(y, k)}</div></td>`;
+  };
+  return `<section class="section">
+    <h2 class="sec-title">Records by year</h2>
+    <div class="tablewrap"><table class="records"><thead><tr><th>Season</th><th>Most points · season</th><th>Most points · one week</th><th>Top NFL player · one game</th></tr></thead><tbody>
+      ${years.map((y, i) => `<tr ${stagger(i)}><td><a ${go(lg.id + "/" + y.s.year)}>${y.s.year}</a></td>${cell(y, "season")}${cell(y, "week")}${cell(y, "player")}</tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted" style="font-size:13px">Gold marks the league's best ever in that column. A season still being played counts its points so far.</p>
+  </section>`;
 }
 
 function seasonView(lg, s, tab) {
@@ -1471,26 +1523,43 @@ document.addEventListener("click", e => {
   document.querySelectorAll("[data-dfilter]").forEach(b => b.setAttribute("aria-pressed", String(on && b === f)));
 });
 
+// "Joe Burrow (QB CIN)" shows the name with a position tag in its draft-board color and the NFL team.
+function playerTag(x) {
+  const m = /^(.*?)\s*\((QB|RB|WR|TE|K|DEF|DST)(?:[\s,]+([A-Z]{2,3}))?\)$/.exec(x);
+  if (!m) return esc(x);
+  const p = m[2] === "DST" ? "DEF" : m[2];
+  return `${esc(m[1])} <span class="tpos dpos-${p}">${p}</span>${m[3] ? ` <span class="tnfl">${esc(m[3])}</span>` : ""}`;
+}
+const SWAP = `<svg class="swap" viewBox="0 0 40 40" aria-hidden="true"><g class="a1"><path d="M6 14h26l-6-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g><g class="a2"><path d="M34 26H8l6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
+// One trade card. "first" puts that manager's side on the left (a profile shows its owner first);
+// "where" adds the league and year in front of the week.
+function tradeCard(s, t, i, first, where) {
+  const flip = first && !onTeam(s, t.a, first) && onTeam(s, t.b, first);
+  const [x, xGets, y, yGets] = flip ? [t.b, t.bGets, t.a, t.aGets] : [t.a, t.aGets, t.b, t.bGets];
+  const side = (id, gets) => `<div class="side">${mgrTeam(s, id)}<span class="gets">Receives</span><ul>${gets.map(g => `<li>${playerTag(g)}</li>`).join("") || "<li class='muted'>—</li>"}</ul></div>`;
+  return `<article class="trade" ${stagger(i, 60)}>
+    <span class="when">${where || ""}${[t.week ? "Week " + t.week : "Offseason", t.date].filter(Boolean).map(esc).join(" · ")}</span>
+    ${side(x, xGets)}${SWAP}${side(y, yGets)}
+    ${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}</article>`;
+}
+const tradeSortBar = newest => `<div class="dbar">${[["new", "Most recent"], ["old", "Oldest"]].map(([k, label]) => `<button class="dchip" data-tsort="${k}" aria-pressed="${(k === "new") === newest}">${label}</button>`).join("")}</div>`;
+const byTradeDate = (a, b) => (a.date || "").localeCompare(b.date || "") || (a.week ?? 0) - (b.week ?? 0);
 function tradesView(s) {
   if (!s.trades.length) return soon(`No trades recorded for ${s.year}`, "Every trade that went down this season shows here: who sent what, and when.");
-  const swap = `<svg class="swap" viewBox="0 0 40 40" aria-hidden="true"><g class="a1"><path d="M6 14h26l-6-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g><g class="a2"><path d="M34 26H8l6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
-  // "Joe Burrow (QB CIN)" shows the name with a position tag in its draft-board color and the NFL team.
-  const item = x => {
-    const m = /^(.*?)\s*\((QB|RB|WR|TE|K|DEF|DST)(?:\s+([A-Z]{2,3}))?\)$/.exec(x);
-    if (!m) return `<li>${esc(x)}</li>`;
-    const p = m[2] === "DST" ? "DEF" : m[2];
-    return `<li>${esc(m[1])} <span class="tpos dpos-${p}">${p}</span>${m[3] ? ` <span class="tnfl">${esc(m[3])}</span>` : ""}</li>`;
-  };
   const newest = tradeOrder() === "new";
-  const list = s.trades.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.week ?? 0) - (b.week ?? 0));
+  const list = s.trades.slice().sort(byTradeDate);
   if (newest) list.reverse();
-  return `<div class="dbar">${[["new", "Most recent"], ["old", "Oldest"]].map(([k, label]) => `<button class="dchip" data-tsort="${k}" aria-pressed="${(k === "new") === newest}">${label}</button>`).join("")}</div>
-  <div class="trades">${list.map((t, i) => `<article class="trade" ${stagger(i, 60)}>
-    <span class="when">${[t.week ? "Week " + t.week : "Offseason", t.date].filter(Boolean).map(esc).join(" · ")}</span>
-    <div class="side">${mgrTeam(s, t.a)}<span class="gets">Receives</span><ul>${t.aGets.map(item).join("") || "<li class='muted'>—</li>"}</ul></div>
-    ${swap}
-    <div class="side">${mgrTeam(s, t.b)}<span class="gets">Receives</span><ul>${t.bGets.map(item).join("") || "<li class='muted'>—</li>"}</ul></div>
-    ${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}</article>`).join("")}</div>`;
+  return tradeSortBar(newest) + `<div class="trades">${list.map((t, i) => tradeCard(s, t, i)).join("")}</div>`;
+}
+// Every trade a manager was part of, in any league, newest or oldest first.
+function playerTradesView(id) {
+  const list = [];
+  for (const lg of D.leagues) for (const s of lg.seasons) for (const t of s.trades) if (onTeam(s, t.a, id) || onTeam(s, t.b, id)) list.push({ lg, s, t });
+  if (!list.length) return soon("No trades yet", `Every trade ${esc(nm(id))} makes, in any league, shows here.`);
+  const newest = tradeOrder() === "new";
+  list.sort((a, b) => a.s.year - b.s.year || byTradeDate(a.t, b.t));
+  if (newest) list.reverse();
+  return tradeSortBar(newest) + `<div class="trades">${list.map(({ lg, s, t }, i) => `<div style="--c:${lg.color}">${tradeCard(s, t, i, id, `<span class="lgtag" style="--c:${lg.color}">${esc(lg.short)}</span> ${s.year} · `)}</div>`).join("")}</div>`;
 }
 // Trade order (most recent or oldest first) is remembered on this device.
 function tradeOrder() { try { return localStorage.getItem("bam-trade-order") === "old" ? "old" : "new"; } catch (e) { return "new"; } }
@@ -1546,8 +1615,11 @@ function statTiles(s) {
   </div>`;
 }
 
-function playerView(id) {
+function playerView(id, tab) {
   const m = M[id], lgs = playerLeagues(id), t = playerTotals(id);
+  const nTrades = D.leagues.reduce((n, lg) => n + lg.seasons.reduce((k, s) => k + s.trades.filter(x => onTeam(s, x.a, id) || onTeam(s, x.b, id)).length, 0), 0);
+  const tabs = `<nav class="tabs" aria-label="Profile sections">${[["career", "Career"], ["trades", "Trades"]].map(([k, label]) =>
+    `<a ${go("players/" + id + (k === "trades" ? "/trades" : ""))}${tab === k ? ' aria-current="page"' : ""}>${label}${k === "trades" && nTrades ? ` <span class="muted num">${nTrades}</span>` : ""}</a>`).join("")}</nav>`;
   const c = lgs.length ? lgs[0].color : "var(--neon)";
   const cols = lgs.length ? lgs.map(l => l.color) : ["#2EC5FF", "#3D7BFF"];
   const photo = m.photo ? imgUrl(m.photo) : "";
@@ -1561,6 +1633,8 @@ function playerView(id) {
       ${shareBtn()}
     </div></section>
     <div class="wrap book">
+      ${tabs}
+      ${tab === "trades" ? `<section class="section"><h2 class="sec-title">Trades · all leagues</h2>${playerTradesView(id)}</section>` : `
       <section class="section"><h2 class="sec-title">Career · all leagues</h2>${statTiles(t)}</section>
       ${lgs.map(lg => {
         const s = leagueStats(lg, id);
@@ -1576,7 +1650,7 @@ function playerView(id) {
             </tbody></table></div>`
             : soon("Season results coming soon", `${esc(m.name)}'s ${esc(lg.short)} seasons show here once standings are added.`)}
         </section>`;
-      }).join("")}
+      }).join("")}`}
     </div>`;
 }
 
@@ -1607,7 +1681,7 @@ function render() {
   const app = $("#app");
   if (p.v === "home") app.innerHTML = homeView();
   else if (p.v === "players") app.innerHTML = playersView();
-  else if (p.v === "player") app.innerHTML = playerView(p.id);
+  else if (p.v === "player") app.innerHTML = playerView(p.id, p.tab);
   else if (p.v === "alltime") app.innerHTML = allTimeView(p.lg);
   else if (p.v === "season") app.innerHTML = seasonView(p.lg, p.s, p.tab);
   else app.innerHTML = leagueView(p.lg);
