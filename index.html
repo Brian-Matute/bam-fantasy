@@ -567,13 +567,14 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .rec-cell .rsub { font-size: 12px; }
 .trade .when .lgtag { margin-right: 4px; vertical-align: 1px; }
 /* Hub headlines: one game at a time, sliding in every few seconds */
-.ticker { position: relative; margin: 0 0 26px; padding: 16px 18px 14px; border-radius: 16px; border: 1px solid var(--line); background: linear-gradient(120deg, rgba(10, 23, 51, .92), rgba(10, 23, 51, .7)); overflow: hidden; }
+.ticker { position: relative; margin: 28px 0 30px; padding: 20px 26px 16px; border-radius: 16px; border: 1px solid var(--line); background: linear-gradient(120deg, rgba(10, 23, 51, .92), rgba(10, 23, 51, .7)); overflow: hidden; }
 .tk-head { display: flex; align-items: center; gap: 12px; font-family: var(--f-display); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
-.tk-stage { display: grid; min-height: 92px; margin-top: 8px; }
+.tk-stage { display: grid; min-height: 104px; margin-top: 10px; }
+@media (min-width: 1000px) { .ticker { margin-left: -28px; margin-right: -28px; } }
 .tk-item { --c: var(--neon); grid-area: 1 / 1; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 16px; align-items: center; text-decoration: none; color: var(--ink); opacity: 0; transform: translateY(14px); pointer-events: none; transition: opacity .5s, transform .5s; }
 .tk-item.on { opacity: 1; transform: none; pointer-events: auto; }
-.tk-item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); box-shadow: 0 0 14px var(--c); opacity: 0; transition: opacity .5s; }
-.tk-item.on::before { opacity: 1; }
+.tk-item::before { content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 4px; border-radius: 0 4px 4px 0; background: var(--c); box-shadow: 0 0 14px var(--c); opacity: 0; transform: scaleY(.4); transition: opacity .7s ease, transform .7s cubic-bezier(.22, .8, .25, 1); }
+.tk-item.on::before { opacity: 1; transform: none; }
 .tk-meta { grid-column: 2; font-family: var(--f-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .tk-faces { grid-column: 1; grid-row: 1 / span 2; display: flex; align-items: center; gap: 6px; }
 .tk-faces .av:last-child { opacity: .55; filter: grayscale(.6); }
@@ -581,8 +582,12 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .tk-text { grid-column: 2; margin: 4px 0 0; font-size: clamp(17px, 2.4vw, 22px); line-height: 1.3; }
 .tk-text b { color: var(--c); font-weight: 700; }
 .tk-dots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.tk-dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--c) 35%, transparent); cursor: pointer; transition: width .3s, background .3s; }
-.tk-dots button[aria-pressed="true"] { width: 22px; border-radius: 4px; background: var(--c); }
+/* Each dot keeps a fixed slot and only its pill grows, so the row never shifts while the active one stretches. */
+.tk-dots button { position: relative; width: 22px; height: 8px; padding: 0; border: 0; background: none; cursor: pointer; }
+.tk-dots button::after { content: ""; position: absolute; inset: 0; border-radius: 4px; background: var(--c); opacity: .35; transform: scaleX(.364); transform-origin: left center; transition: transform .6s cubic-bezier(.22, .8, .25, 1), opacity .6s ease; }
+.tk-dots button[aria-pressed="true"]::after { opacity: 1; transform: none; }
+.mu.focus { scroll-margin-top: 96px; }
+.mu.focus > summary { box-shadow: inset 0 0 0 1px var(--c, var(--neon)), 0 0 18px color-mix(in srgb, var(--c, var(--neon)) 40%, transparent); border-radius: 12px; }
 @media (max-width: 560px) { .tk-faces .av { width: 40px; height: 40px; font-size: 14px; } .tk-stage { min-height: 120px; } }
 @media (prefers-reduced-motion: reduce) { .tk-item { transition: none; transform: none; } }
 .dp .by { display: block; margin-top: 3px; font-family: var(--f-display); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1112,6 +1117,9 @@ function parse(r) {
   if (!lg) return { v: "home" };
   if (sub === "all-time" || sub === "alltime") return { v: "alltime", lg };
   const s = lg.seasons.find(x => x.year === +sub);
+  // gridiron/2026/week-8/colby opens Weeks with that week's matchup (the one Colby played in) already open.
+  const wm = /^week-(\d+)$/.exec(tab || "");
+  if (s && wm) return { v: "season", lg, s, tab: "weeks", focus: { week: +wm[1], id: p[3] || null } };
   if (s) return { v: "season", lg, s, tab: SEASON_TABS.some(([k]) => k === tab) ? tab : "weeks" };
   return { v: "league", lg };
 }
@@ -1120,7 +1128,7 @@ function routeOf(p) {
   if (p.v === "player") return "players/" + p.id + (p.tab === "trades" ? "/trades" : "");
   if (p.v === "league") return p.lg.id;
   if (p.v === "alltime") return p.lg.id + "/all-time";
-  if (p.v === "season") return p.lg.id + "/" + p.s.year + (p.tab !== "weeks" ? "/" + p.tab : "");
+  if (p.v === "season") return p.lg.id + "/" + p.s.year + (p.focus ? `/week-${p.focus.week}${p.focus.id ? "/" + p.focus.id : ""}` : p.tab !== "weeks" ? "/" + p.tab : "");
   return "home";
 }
 function currentRoute() {
@@ -1172,7 +1180,7 @@ function homeView() {
   const news = weekHeadlines();
   const ticker = news.length ? `<section class="ticker" aria-label="This week's headlines">
       <div class="tk-head"><span class="live-dot">Headlines</span><span class="muted">${[...new Set(news.map(h => "Week " + h.wk))].join(" · ")}</span></div>
-      <div class="tk-stage">${news.map((h, i) => `<a class="tk-item${i ? "" : " on"}" style="--c:${h.lg.color}" ${go(h.lg.id + "/" + h.s.year)}>
+      <div class="tk-stage">${news.map((h, i) => `<a class="tk-item${i ? "" : " on"}" style="--c:${h.lg.color}" ${go(`${h.lg.id}/${h.s.year}/week-${h.wk}/${h.win}`)}>
         <span class="tk-meta"><span class="lgtag" style="--c:${h.lg.color}">${esc(h.lg.short)}</span> Week ${h.wk}</span>
         <span class="tk-faces">${av(h.win, "lg")}<span class="tk-vs">def.</span>${av(h.lose, "lg")}</span>
         <p class="tk-text">${h.text}</p></a>`).join("")}</div>
@@ -1409,7 +1417,7 @@ function recordsView(lg) {
   </section>`;
 }
 
-function seasonView(lg, s, tab) {
+function seasonView(lg, s, tab, focus) {
   const base = lg.id + "/" + s.year;
   const r = rand(s.year);
   const confetti = s.champion ? `<div class="confetti">${Array.from({ length: 22 }, () => `<i style="left:${(r() * 100).toFixed(1)}%;background:${["#FFD166", "#2EC5FF", "#E6F1FF", lg.color][Math.floor(r() * 4)]};animation-duration:${(3 + r() * 4).toFixed(1)}s;animation-delay:${(-r() * 6).toFixed(1)}s"></i>`).join("")}</div>` : "";
@@ -1438,7 +1446,7 @@ function seasonView(lg, s, tab) {
     const n = k === "draft" ? s.draft.length : k === "trades" ? s.trades.length : 0;
     return `<a ${go(k === "weeks" ? base : base + "/" + k)}${tab === k ? ' aria-current="page"' : ""}>${label}${n && k !== "draft" ? ` <span class="muted num">${n}</span>` : ""}</a>`;
   }).join("")}</nav>`;
-  const body = tab === "draft" ? draftView(lg, s) : tab === "trades" ? tradesView(s) : tab === "lore" ? loreView(s) : weeksView(lg, s);
+  const body = tab === "draft" ? draftView(lg, s) : tab === "trades" ? tradesView(s) : tab === "lore" ? loreView(s) : weeksView(lg, s, focus);
   const notes = [s.teams ? `${s.teams}-team league this season` : "", s.note].filter(Boolean);
   const noteStrip = notes.length ? `<div class="season-note">${notes.map(esc).join(" · ")}</div>` : "";
 
@@ -1537,7 +1545,7 @@ function lineupTable(list, label) {
   </tbody></table></div>`;
 }
 
-function weeksView(lg, s) {
+function weeksView(lg, s, focus) {
   // A season's own Weeks (Seasons tab) wins over the league's, for years with a shorter schedule.
   const maxWeek = Math.max(s.weeks || lg.weeks, ...s.games.map(g => g.week));
   const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
@@ -1545,12 +1553,14 @@ function weeksView(lg, s) {
     // Playoff games first, and the week is named for its playoff round (Wild Card, Semifinal, Championship), never a consolation game.
     const games = s.games.filter(g => g.week === w).sort((a, b) => isPlayoffRound(b.round) - isPlayoffRound(a.round));
     const round = (games.find(g => isPlayoffRound(g.round)) || {}).round;
-    return `<details class="wk" ${stagger(i, 25)}><summary><span class="wn">Week ${w}</span>${round ? `<span class="round">${esc(round)}</span>` : ""}
+    const fw = focus && focus.week === w;
+    return `<details class="wk" ${stagger(i, 25)}${fw ? " open" : ""}><summary><span class="wn">Week ${w}</span>${round ? `<span class="round">${esc(round)}</span>` : ""}
       <span class="meta">${games.length ? `${games.length} matchup${games.length === 1 ? "" : "s"}` : "No results yet"}</span><span class="chev"></span></summary>
       <div class="wk-body">${games.length ? games.map(g => {
         const win = winnerOf(g);
         const side = (id, sc, r) => `<span class="side ${r ? "r" : ""} ${win ? (win === id ? "won" : "lost") : ""}">${av(id)}<span class="nm">${esc(teamName(s, id))}</span><span class="sc">${pts(sc)}</span></span>`;
-        return `<details class="mu"><summary>${side(g.home, g.homeScore)}<span class="vs">${g.round && !/regular/i.test(g.round) ? esc(g.round) : "VS"}</span>${side(g.away, g.awayScore, true)}<span class="chev"></span></summary>
+        const hit = fw && focus.id && (onTeam(s, g.home, focus.id) || onTeam(s, g.away, focus.id));
+        return `<details class="mu${hit ? " focus" : ""}"${hit ? ' id="focus-mu" open' : ""}><summary>${side(g.home, g.homeScore)}<span class="vs">${g.round && !/regular/i.test(g.round) ? esc(g.round) : "VS"}</span>${side(g.away, g.awayScore, true)}<span class="chev"></span></summary>
           <div class="lineups">${lineupTable(s.lineups[w + "|" + g.home], teamName(s, g.home))}${lineupTable(s.lineups[w + "|" + g.away], teamName(s, g.away))}</div></details>`;
       }).join("") : `<p class="muted" style="font-size:14px;margin:4px">Week ${w} matchups haven't been added yet.</p>`}</div></details>`;
   }).join("")}</div>
@@ -1786,11 +1796,14 @@ function render() {
   else if (p.v === "players") app.innerHTML = playersView();
   else if (p.v === "player") app.innerHTML = playerView(p.id, p.tab);
   else if (p.v === "alltime") app.innerHTML = allTimeView(p.lg);
-  else if (p.v === "season") app.innerHTML = seasonView(p.lg, p.s, p.tab);
+  else if (p.v === "season") app.innerHTML = seasonView(p.lg, p.s, p.tab, p.focus);
   else app.innerHTML = leagueView(p.lg);
   fitScenes();
   countUp(app);
   if (p.v === "home") startTicker(app); else clearInterval(tickerTimer);
+  // A linked matchup scrolls into view once the page has settled (navigate scrolls to the top first).
+  const focus = app.querySelector("#focus-mu");
+  if (focus) setTimeout(() => focus.scrollIntoView({ block: "start" }), 80);
   app.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
     app.querySelectorAll("[data-filter]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
     app.querySelectorAll(".pcard2").forEach(card => { card.hidden = b.dataset.filter !== "all" && !card.dataset.leagues.split(" ").includes(b.dataset.filter); });
