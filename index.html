@@ -566,6 +566,25 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .rec-cell .rpts { font-size: 20px; color: var(--ink); }
 .rec-cell .rsub { font-size: 12px; }
 .trade .when .lgtag { margin-right: 4px; vertical-align: 1px; }
+/* Hub headlines: one game at a time, sliding in every few seconds */
+.ticker { position: relative; margin: 0 0 26px; padding: 16px 18px 14px; border-radius: 16px; border: 1px solid var(--line); background: linear-gradient(120deg, rgba(10, 23, 51, .92), rgba(10, 23, 51, .7)); overflow: hidden; }
+.tk-head { display: flex; align-items: center; gap: 12px; font-family: var(--f-display); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+.tk-stage { display: grid; min-height: 92px; margin-top: 8px; }
+.tk-item { --c: var(--neon); grid-area: 1 / 1; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 16px; align-items: center; text-decoration: none; color: var(--ink); opacity: 0; transform: translateY(14px); pointer-events: none; transition: opacity .5s, transform .5s; }
+.tk-item.on { opacity: 1; transform: none; pointer-events: auto; }
+.tk-item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); box-shadow: 0 0 14px var(--c); opacity: 0; transition: opacity .5s; }
+.tk-item.on::before { opacity: 1; }
+.tk-meta { grid-column: 2; font-family: var(--f-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.tk-faces { grid-column: 1; grid-row: 1 / span 2; display: flex; align-items: center; gap: 6px; }
+.tk-faces .av:last-child { opacity: .55; filter: grayscale(.6); }
+.tk-vs { font-family: var(--f-display); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.tk-text { grid-column: 2; margin: 4px 0 0; font-size: clamp(17px, 2.4vw, 22px); line-height: 1.3; }
+.tk-text b { color: var(--c); font-weight: 700; }
+.tk-dots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tk-dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--c) 35%, transparent); cursor: pointer; transition: width .3s, background .3s; }
+.tk-dots button[aria-pressed="true"] { width: 22px; border-radius: 4px; background: var(--c); }
+@media (max-width: 560px) { .tk-faces .av { width: 40px; height: 40px; font-size: 14px; } .tk-stage { min-height: 120px; } }
+@media (prefers-reduced-motion: reduce) { .tk-item { transition: none; transform: none; } }
 .dp .by { display: block; margin-top: 3px; font-family: var(--f-display); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp .by.traded { opacity: 1; justify-self: start; display: inline-block; max-width: 100%; padding: 1px 6px; border-radius: 999px; background: rgba(3, 9, 22, .55); color: var(--gold); box-shadow: 0 0 0 1px rgba(255, 209, 102, .55); }
 .dp.empty { background: rgba(10, 23, 51, .5); border: 1px dashed var(--line); box-shadow: none; }
@@ -774,7 +793,7 @@ function build(t) {
     s.highs = {
       season: r.highseasonteam ? { id: who(r.highseasonteam, s), pts: numOrNull(r.highseasonpoints) } : null,
       week: r.highweekteam ? { id: who(r.highweekteam, s), pts: numOrNull(r.highweekpoints), week: numOrNull(r.highweek) } : null,
-      player: r.highplayer ? { player: r.highplayer, pts: numOrNull(r.highplayerpoints), week: numOrNull(r.highplayerweek) } : null
+      player: r.highplayer ? { player: r.highplayer, pts: numOrNull(r.highplayerpoints), week: numOrNull(r.highplayerweek), id: r.highplayerteam ? who(r.highplayerteam, s) : null } : null
     };
   }
   for (const r of t.Standings) {
@@ -1150,6 +1169,15 @@ function homeView() {
   const champs = [];
   for (const lg of D.leagues) for (const s of lg.seasons) if (s.champion) champs.push({ lg, s });
   champs.sort((a, b) => b.s.year - a.s.year);
+  const news = weekHeadlines();
+  const ticker = news.length ? `<section class="ticker" aria-label="This week's headlines">
+      <div class="tk-head"><span class="live-dot">Headlines</span><span class="muted">${[...new Set(news.map(h => "Week " + h.wk))].join(" · ")}</span></div>
+      <div class="tk-stage">${news.map((h, i) => `<a class="tk-item${i ? "" : " on"}" style="--c:${h.lg.color}" ${go(h.lg.id + "/" + h.s.year)}>
+        <span class="tk-meta"><span class="lgtag" style="--c:${h.lg.color}">${esc(h.lg.short)}</span> Week ${h.wk}</span>
+        <span class="tk-faces">${av(h.win, "lg")}<span class="tk-vs">def.</span>${av(h.lose, "lg")}</span>
+        <p class="tk-text">${h.text}</p></a>`).join("")}</div>
+      <div class="tk-dots">${news.map((h, i) => `<button type="button" data-tk="${i}" aria-label="Headline ${i + 1}" aria-pressed="${!i}" style="--c:${h.lg.color}"></button>`).join("")}</div>
+    </section>` : "";
   return `
   <section class="hero"><div class="hero-field" aria-hidden="true"></div>
     <div class="wrap">
@@ -1164,6 +1192,7 @@ function homeView() {
     </div>
   </section>
   <div class="wrap view">
+    ${ticker}
     <div class="portals">
       ${D.leagues.map((lg, i) => {
         const cur = latestSeason(lg), lc = lastChamp(lg);
@@ -1195,6 +1224,80 @@ function homeView() {
         : soon("Champions coming soon", "Each league's title winners will be listed here, newest first, as season results are added.")}
     </section>
   </div>`;
+}
+
+/* Headlines for the latest week played in every live season: one line per game, written from how the
+   game changed the standings (a new 1st place, a streak, a team falling out of a playoff spot...). */
+function weekHeadlines() {
+  const perLeague = [];
+  for (const lg of D.leagues) {
+    const s = latestSeason(lg);
+    if (s.status !== "in-progress") continue;
+    const played = s.games.filter(g => g.home && g.away && g.homeScore && g.awayScore && !isPlayoffRound(g.round)).sort((a, b) => a.week - b.week);
+    if (!played.length) continue;
+    const wk = Math.max(...played.map(g => g.week));
+    // Records, streaks and places through a given week (wins first, points break ties).
+    const table = upTo => {
+      const t = {};
+      for (const g of played) if (g.week <= upTo) for (const [id, me, op] of [[g.home, g.homeScore, g.awayScore], [g.away, g.awayScore, g.homeScore]]) {
+        const r = t[id] ||= { w: 0, l: 0, t: 0, pf: 0, streak: 0 };
+        const res = Math.sign(me - op);
+        r.pf += me;
+        if (res > 0) r.w++; else if (res < 0) r.l++; else r.t++;
+        r.streak = res > 0 ? Math.max(r.streak, 0) + 1 : res < 0 ? Math.min(r.streak, 0) - 1 : 0;
+      }
+      Object.keys(t).sort((a, b) => (t[b].w + t[b].t / 2) - (t[a].w + t[a].t / 2) || t[b].pf - t[a].pf).forEach((id, i) => { t[id].rank = i + 1; });
+      return t;
+    };
+    const before = table(wk - 1), after = table(wk), po = lg.playoffTeams;
+    const games = played.filter(g => g.week === wk);
+    const scores = games.flatMap(g => [g.homeScore, g.awayScore]).sort((a, b) => b - a);
+    const items = games.map(g => {
+      const homeWon = g.homeScore >= g.awayScore;
+      const [win, ws, lose, ls] = homeWon ? [g.home, g.homeScore, g.away, g.awayScore] : [g.away, g.awayScore, g.home, g.homeScore];
+      const W = `<b>${esc(teamName(s, win))}</b>`, Lo = `<b>${esc(teamName(s, lose))}</b>`;
+      const wb = before[win] || { rank: 99, w: 0, l: 0, streak: 0 }, lb = before[lose] || { rank: 99, w: 0, l: 0, streak: 0 };
+      const wa = after[win], la = after[lose];
+      const score = `${pts(ws)}–${pts(ls)}`;
+      if (ws === ls) return { lg, s, wk, win, lose, text: `${W} and ${Lo} battle to a ${score} tie.` };
+      const m = ws - ls;
+      const verb = m >= 50 ? "demolishes" : m >= 30 ? "rolls past" : m >= 15 ? "beats" : m >= 5 ? "gets past" : "edges";
+      const tail =
+        wa.rank === 1 && wb.rank !== 1 ? "to take over 1st place"
+        : lb.rank === 1 && la.rank !== 1 ? `, knocking ${Lo} out of 1st`
+        : lb.l === 0 && lb.w >= 2 ? `, handing ${Lo} a first loss`
+        : wa.rank === 1 ? "to hold onto the 1 seed"
+        : wa.streak >= 3 ? `for a ${ordinal(wa.streak)} straight win`
+        : wa.rank <= po && wb.rank > po ? "to climb into a playoff spot"
+        : lb.rank <= po && la.rank > po ? `, pushing ${Lo} out of a playoff spot`
+        : la.streak <= -3 ? `, sending ${Lo} to a ${ordinal(-la.streak)} straight loss`
+        : ws === scores[0] && scores.length > 4 ? "behind the week's top score"
+        : `to move to ${rec(wa.w, wa.l, wa.t)}`;
+      return { lg, s, wk, win, lose, text: `${W} ${verb} ${Lo} ${score}${tail.startsWith(",") ? "" : " "}${tail}.` };
+    });
+    perLeague.push(items);
+  }
+  // Take turns between leagues so one league's games don't all run back to back.
+  const out = [];
+  for (let i = 0; perLeague.some(x => x[i]); i++) perLeague.forEach(x => x[i] && out.push(x[i]));
+  return out;
+}
+let tickerTimer = null;
+function startTicker(root) {
+  clearInterval(tickerTimer);
+  const items = [...root.querySelectorAll(".tk-item")], dots = [...root.querySelectorAll("[data-tk]")];
+  if (items.length < 2) return;
+  let i = 0, paused = false;
+  const show = n => {
+    i = (n + items.length) % items.length;
+    items.forEach((el, k) => el.classList.toggle("on", k === i));
+    dots.forEach((d, k) => d.setAttribute("aria-pressed", String(k === i)));
+  };
+  dots.forEach(d => d.onclick = () => show(+d.dataset.tk));
+  const box = root.querySelector(".ticker");
+  box.onmouseenter = () => { paused = true; };
+  box.onmouseleave = () => { paused = false; };
+  tickerTimer = setInterval(() => { if (!paused && !document.hidden) show(i + 1); }, 4500);
 }
 
 function banner(lg, title, short, extra = "") {
@@ -1687,6 +1790,7 @@ function render() {
   else app.innerHTML = leagueView(p.lg);
   fitScenes();
   countUp(app);
+  if (p.v === "home") startTicker(app); else clearInterval(tickerTimer);
   app.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
     app.querySelectorAll("[data-filter]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
     app.querySelectorAll(".pcard2").forEach(card => { card.hidden = b.dataset.filter !== "all" && !card.dataset.leagues.split(" ").includes(b.dataset.filter); });
