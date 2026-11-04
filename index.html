@@ -566,6 +566,12 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .rec-cell .rpts { font-size: 20px; color: var(--ink); }
 .rec-cell .rsub { font-size: 12px; }
 .trade .when .lgtag { margin-right: 4px; vertical-align: 1px; }
+/* Playoff odds */
+.odds { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.odds .track { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.odds .track span { display: block; height: 100%; border-radius: 4px; background: var(--c, var(--neon)); box-shadow: 0 0 10px color-mix(in srgb, var(--c, var(--neon)) 60%, transparent); }
+.odds .num { width: 42px; text-align: right; font-size: 14px; }
+.oddstab tr.cutline td { border-bottom: 2px dashed color-mix(in srgb, var(--c, var(--neon)) 60%, transparent); }
 /* Hub headlines: one game at a time, sliding in every few seconds */
 .ticker { position: relative; margin: 28px 0 30px; padding: 20px 26px 16px; border-radius: 16px; border: 1px solid var(--line); background: linear-gradient(120deg, rgba(10, 23, 51, .92), rgba(10, 23, 51, .7)); overflow: hidden; }
 .tk-head { display: flex; align-items: center; gap: 12px; font-family: var(--f-display); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
@@ -1233,6 +1239,129 @@ function homeView() {
   </div>`;
 }
 
+/* ---------- seeding and playoff odds ----------
+   Every league seeds the same way: best record first. Teams tied on record are ordered by their
+   head-to-head record in games among just those teams; any still level are split again the same way.
+   A group head-to-head can't separate (a 1-1 split, a circle where everyone beat someone, or teams
+   that never met) is ordered by points for. */
+function seedOrder(keys, wins, pf, vs) {
+  const split = group => {
+    if (group.length < 2) return group;
+    const score = new Map(group.map(a => {
+      let w = 0, n = 0;
+      for (const b of group) if (b !== a) { const [x, m] = vs(a, b); w += x; n += m; }
+      return [a, n ? w / n : .5];
+    }));
+    const levels = [...new Set(score.values())].sort((x, y) => y - x);
+    if (levels.length === 1) return group.slice().sort((a, b) => pf(b) - pf(a));
+    return levels.flatMap(v => split(group.filter(a => score.get(a) === v)));
+  };
+  return [...new Set(keys.map(wins))].sort((x, y) => y - x).flatMap(v => split(keys.filter(k => wins(k) === v)));
+}
+// Records, streaks, head-to-head and seeds from finished regular-season games (in week order).
+function tableFrom(games) {
+  const rec = {}, h2h = {};
+  for (const g of games) for (const [a, b, me, op] of [[g.home, g.away, g.homeScore, g.awayScore], [g.away, g.home, g.awayScore, g.homeScore]]) {
+    const r = rec[a] ||= { w: 0, l: 0, t: 0, pf: 0, streak: 0 }, h = h2h[a + "|" + b] ||= { w: 0, l: 0, t: 0 };
+    const res = Math.sign(me - op);
+    r.pf += me;
+    if (res > 0) { r.w++; h.w++; } else if (res < 0) { r.l++; h.l++; } else { r.t++; h.t++; }
+    r.streak = res > 0 ? Math.max(r.streak, 0) + 1 : res < 0 ? Math.min(r.streak, 0) - 1 : 0;
+  }
+  const order = seedOrder(Object.keys(rec), id => rec[id].w + rec[id].t / 2, id => rec[id].pf,
+    (a, b) => { const h = h2h[a + "|" + b]; return h ? [h.w + h.t / 2, h.w + h.l + h.t] : [0, 0]; });
+  order.forEach((id, i) => { rec[id].rank = i + 1; });
+  return { rec, h2h, order };
+}
+const isPlayed = g => g.homeScore != null && g.awayScore != null && (g.homeScore > 0 || g.awayScore > 0);
+const regularGames = s => s.games.filter(g => g.home && g.away && !isPlayoffRound(g.round)).sort((a, b) => a.week - b.week);
+function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* Plays out the rest of the regular season 10,000 times. Each team's score in a game is drawn from a bell
+   curve built from its own scores this season, pulled toward the league average while there are only a
+   few weeks to go on (so one huge week doesn't make a team look unbeatable), and each simulated season
+   is seeded with the rules above. A team's odds are the share of seasons it finished in a playoff spot
+   (or in the top two, for a bye). Clinched and Out are worked out exactly, not from the simulations. */
+const SIMS = 10000, SHRINK = 4;
+function playoffOdds(lg, s) {
+  if (s.status !== "in-progress") return null;
+  if (s._odds !== undefined) return s._odds;
+  const reg = regularGames(s), played = reg.filter(isPlayed), left = reg.filter(g => !isPlayed(g));
+  const ids = [...new Set(reg.flatMap(g => [g.home, g.away]))];
+  if (ids.length < 4 || !played.length) return (s._odds = null);
+  const n = ids.length, ix = Object.fromEntries(ids.map((id, i) => [id, i]));
+  const spots = Math.min(lg.playoffTeams, n - 1), byes = lg.playoffTeams === 6 ? 2 : 0;
+  const now = tableFrom(played);
+
+  // Scoring model per team.
+  const all = played.flatMap(g => [g.homeScore, g.awayScore]);
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const lgMean = avg(all), lgVar = avg(all.map(x => (x - lgMean) ** 2));
+  const mu = [], sd = [];
+  ids.forEach((id, i) => {
+    const mine = played.flatMap(g => g.home === id ? [g.homeScore] : g.away === id ? [g.awayScore] : []);
+    const k = mine.length, m = k ? avg(mine) : lgMean;
+    mu[i] = (k * m + SHRINK * lgMean) / (k + SHRINK);
+    sd[i] = Math.sqrt((mine.reduce((v, x) => v + (x - m) ** 2, 0) + SHRINK * lgVar) / (k + SHRINK));
+  });
+
+  // Starting point for every simulation.
+  const W0 = new Float64Array(n), PF0 = new Float64Array(n), HW0 = new Float64Array(n * n), HG0 = new Float64Array(n * n), rem = new Array(n).fill(0);
+  ids.forEach((id, i) => { const r = now.rec[id]; if (r) { W0[i] = r.w + r.t / 2; PF0[i] = r.pf; } });
+  for (const [key, h] of Object.entries(now.h2h)) { const [a, b] = key.split("|"); HW0[ix[a] * n + ix[b]] = h.w + h.t / 2; HG0[ix[a] * n + ix[b]] = h.w + h.l + h.t; }
+  const sched = left.map(g => [ix[g.home], ix[g.away]]);
+  sched.forEach(([a, b]) => { rem[a]++; rem[b]++; });
+
+  const keys = ids.map((_, i) => i), W = new Float64Array(n), PF = new Float64Array(n), HW = new Float64Array(n * n), HG = new Float64Array(n * n);
+  const made = new Array(n).fill(0), bye = new Array(n).fill(0), wins = new Array(n).fill(0), seedCount = ids.map(() => new Array(n).fill(0));
+  const rng = mulberry(s.year * 131 + lg.id.length * 7 + n);
+  const normal = () => { let u = 0; while (!u) u = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng()); };
+  const sims = sched.length ? SIMS : 1;
+  for (let k = 0; k < sims; k++) {
+    W.set(W0); PF.set(PF0); HW.set(HW0); HG.set(HG0);
+    for (const [a, b] of sched) {
+      const sa = mu[a] + sd[a] * normal(), sb = mu[b] + sd[b] * normal();
+      PF[a] += sa; PF[b] += sb; HG[a * n + b]++; HG[b * n + a]++;
+      if (sa > sb) { W[a]++; HW[a * n + b]++; } else { W[b]++; HW[b * n + a]++; }
+    }
+    const order = seedOrder(keys, i => W[i], i => PF[i], (a, b) => [HW[a * n + b], HG[a * n + b]]);
+    order.forEach((i, place) => { seedCount[i][place]++; if (place < spots) made[i]++; if (place < byes) bye[i]++; wins[i] += W[i]; });
+  }
+
+  // Exact checks: clinched if, even losing out, too few teams can still catch them; out if too many are already ahead of their best case.
+  const cur = i => W0[i], best = i => W0[i] + rem[i];
+  const clinch = (i, places) => keys.filter(j => j !== i && best(j) >= cur(i)).length < places;
+  const gone = (i, places) => keys.filter(j => j !== i && cur(j) > best(i)).length >= places;
+  const rows = now.order.map((id, place) => {
+    const i = ix[id], r = now.rec[id];
+    const likely = seedCount[i].indexOf(Math.max(...seedCount[i])) + 1;
+    return {
+      id, w: r.w, l: r.l, t: r.t, pf: r.pf, seed: place + 1, likely,
+      projW: wins[i] / sims, games: r.w + r.l + r.t + rem[i],
+      po: made[i] / sims * 100, by: bye[i] / sims * 100,
+      poIn: clinch(i, spots) || made[i] === sims && !sched.length, poOut: gone(i, spots) || !made[i] && !sched.length,
+      byIn: byes && (clinch(i, byes) || bye[i] === sims && !sched.length), byOut: !byes || gone(i, byes) || !bye[i] && !sched.length
+    };
+  });
+  return (s._odds = { rows, spots, byes, left: sched.length, weeksLeft: new Set(left.map(g => g.week)).size, through: Math.max(...played.map(g => g.week)) });
+}
+function oddsView(lg, s) {
+  const o = playoffOdds(lg, s);
+  if (!o) return "";
+  const show = p => p >= 99.5 ? ">99%" : p > 0 && p < .5 ? "<1%" : Math.round(p) + "%";
+  const cell = (p, yes, no) => yes ? `<span class="badge-s gold">Clinched</span>` : no ? `<span class="muted">Out</span>`
+    : `<div class="odds"><span class="track"><span style="width:${p.toFixed(1)}%"></span></span><span class="num">${show(p)}</span></div>`;
+  return `<section class="section">
+    <h2 class="sec-title">Playoff odds</h2>
+    <div class="tablewrap"><table class="oddstab"><thead><tr><th class="rk">Seed</th><th>Manager</th><th class="n">Record</th><th class="n">Projected</th><th>Make playoffs</th>${o.byes ? "<th>First-round bye</th>" : ""}<th class="n">Likely seed</th></tr></thead><tbody>
+      ${o.rows.map((r, i) => `<tr ${stagger(i)} class="${i === o.spots - 1 ? "cutline" : ""}"><td class="rk">${r.seed}</td><td>${mgrTeam(s, r.id)}</td><td class="n">${rec(r.w, r.l, r.t)}</td>
+        <td class="n">${o.left ? `${Math.round(r.projW)}-${r.games - Math.round(r.projW)}` : "—"}</td><td>${cell(r.po, r.poIn, r.poOut)}</td>${o.byes ? `<td>${cell(r.by, r.byIn, r.byOut)}</td>` : ""}<td class="n">${ordinal(r.likely)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="muted" style="font-size:13px">Through Week ${o.through}${o.left ? ` · ${o.left} games left over ${o.weeksLeft} week${o.weeksLeft === 1 ? "" : "s"}` : " · regular season over"}. The top ${o.spots} make the playoffs${o.byes ? `, and the top ${o.byes} get a bye` : ""}.
+      The rest of the season is played out ${SIMS.toLocaleString()} times, with every team scoring like it has this year. Ties on record go to head-to-head among the tied teams, then points for. The line marks the last playoff spot today.</p>
+  </section>`;
+}
+
 /* Headlines for the latest week played in every live season: one line per game, written from how the
    game changed the standings (a new 1st place, a streak, a team falling out of a playoff spot...). */
 function weekHeadlines() {
@@ -1240,22 +1369,11 @@ function weekHeadlines() {
   for (const lg of D.leagues) {
     const s = latestSeason(lg);
     if (s.status !== "in-progress") continue;
-    const played = s.games.filter(g => g.home && g.away && g.homeScore && g.awayScore && !isPlayoffRound(g.round)).sort((a, b) => a.week - b.week);
+    const played = regularGames(s).filter(isPlayed);
     if (!played.length) continue;
     const wk = Math.max(...played.map(g => g.week));
-    // Records, streaks and places through a given week (wins first, points break ties).
-    const table = upTo => {
-      const t = {};
-      for (const g of played) if (g.week <= upTo) for (const [id, me, op] of [[g.home, g.homeScore, g.awayScore], [g.away, g.awayScore, g.homeScore]]) {
-        const r = t[id] ||= { w: 0, l: 0, t: 0, pf: 0, streak: 0 };
-        const res = Math.sign(me - op);
-        r.pf += me;
-        if (res > 0) r.w++; else if (res < 0) r.l++; else r.t++;
-        r.streak = res > 0 ? Math.max(r.streak, 0) + 1 : res < 0 ? Math.min(r.streak, 0) - 1 : 0;
-      }
-      Object.keys(t).sort((a, b) => (t[b].w + t[b].t / 2) - (t[a].w + t[a].t / 2) || t[b].pf - t[a].pf).forEach((id, i) => { t[id].rank = i + 1; });
-      return t;
-    };
+    // Records, streaks and places (with the league's tiebreakers) before and after this week.
+    const table = upTo => tableFrom(played.filter(g => g.week <= upTo)).rec;
     const before = table(wk - 1), after = table(wk), po = lg.playoffTeams;
     const games = played.filter(g => g.week === wk);
     const scores = games.flatMap(g => [g.homeScore, g.awayScore]).sort((a, b) => b - a);
@@ -1434,7 +1552,9 @@ function seasonView(lg, s, tab, focus) {
         <div class="name">${s.status === "in-progress" ? "Still being decided" : "Not recorded yet"}</div>${s.status === "in-progress" ? `<div style="margin-top:8px"><span class="live-dot">Season live</span></div>` : ""}</div></div></section>`;
 
   // The table is the regular season: Rank sets the order, so a playoff run (Finish) never moves anyone.
-  const rows = s.standings.map(x => ({ ...x, ...seasonRow(s, x.id) }))
+  // While a season is live, its order follows the league's tiebreakers (head-to-head, then points).
+  const live = playoffOdds(lg, s), liveSeed = live ? Object.fromEntries(live.rows.map(r => [r.id, r.seed])) : null;
+  const rows = s.standings.map(x => ({ ...x, ...seasonRow(s, x.id), ...(liveSeed && liveSeed[x.id] ? { rank: liveSeed[x.id] } : {}) }))
     .sort((a, b) => (a.rank || 99) - (b.rank || 99) || (b.w + b.t / 2) - (a.w + a.t / 2) || (b.pf || 0) - (a.pf || 0) || (a.finish || 99) - (b.finish || 99) || teamName(s, a.id).localeCompare(teamName(s, b.id)));
   const anyRec = rows.some(x => x.hasRec || x.rank || x.finish);
   const badge = x => x.id === s.champion ? `<span class="badge-s gold">Champion</span>` : x.id === s.runnerUp ? `<span class="badge-s silver">Runner-up</span>` : x.madePlayoffs ? `<span class="badge-s po">Playoffs</span>` : "";
@@ -1459,6 +1579,7 @@ function seasonView(lg, s, tab, focus) {
     ${noteStrip}
     ${champ}
     <section class="section"><h2 class="sec-title">${s.year} standings</h2>${standings}</section>
+    ${oddsView(lg, s)}
     ${bracketView(lg, s)}
     <section class="section">${tabs}${body}</section>
   </div>`;
