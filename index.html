@@ -573,8 +573,8 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 @media (min-width: 1000px) { .ticker { margin-left: -28px; margin-right: -28px; } }
 .tk-item { --c: var(--neon); grid-area: 1 / 1; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 16px; align-items: center; text-decoration: none; color: var(--ink); opacity: 0; transform: translateY(14px); pointer-events: none; transition: opacity .5s, transform .5s; }
 .tk-item.on { opacity: 1; transform: none; pointer-events: auto; }
-.tk-item::before { content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 4px; border-radius: 0 4px 4px 0; background: var(--c); box-shadow: 0 0 14px var(--c); opacity: 0; transform: scaleY(.4); transition: opacity .7s ease, transform .7s cubic-bezier(.22, .8, .25, 1); }
-.tk-item.on::before { opacity: 1; transform: none; }
+/* A plain bar down the left edge in the current league's color. It never moves; only its color changes. */
+.ticker::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c, var(--neon)); }
 .tk-meta { grid-column: 2; font-family: var(--f-display); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .tk-faces { grid-column: 1; grid-row: 1 / span 2; display: flex; align-items: center; gap: 6px; }
 .tk-faces .av:last-child { opacity: .55; filter: grayscale(.6); }
@@ -582,10 +582,9 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .tk-text { grid-column: 2; margin: 4px 0 0; font-size: clamp(17px, 2.4vw, 22px); line-height: 1.3; }
 .tk-text b { color: var(--c); font-weight: 700; }
 .tk-dots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-/* Each dot keeps a fixed slot and only its pill grows, so the row never shifts while the active one stretches. */
-.tk-dots button { position: relative; width: 22px; height: 8px; padding: 0; border: 0; background: none; cursor: pointer; }
-.tk-dots button::after { content: ""; position: absolute; inset: 0; border-radius: 4px; background: var(--c); opacity: .35; transform: scaleX(.364); transform-origin: left center; transition: transform .6s cubic-bezier(.22, .8, .25, 1), opacity .6s ease; }
-.tk-dots button[aria-pressed="true"]::after { opacity: 1; transform: none; }
+/* Plain dots: the current one is just brighter, nothing grows or slides. */
+.tk-dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: var(--c); opacity: .3; cursor: pointer; }
+.tk-dots button[aria-pressed="true"] { opacity: 1; }
 .mu.focus { scroll-margin-top: 96px; }
 .mu.focus > summary { box-shadow: inset 0 0 0 1px var(--c, var(--neon)), 0 0 18px color-mix(in srgb, var(--c, var(--neon)) 40%, transparent); border-radius: 12px; }
 @media (max-width: 560px) { .tk-faces .av { width: 40px; height: 40px; font-size: 14px; } .tk-stage { min-height: 120px; } }
@@ -1178,7 +1177,7 @@ function homeView() {
   for (const lg of D.leagues) for (const s of lg.seasons) if (s.champion) champs.push({ lg, s });
   champs.sort((a, b) => b.s.year - a.s.year);
   const news = weekHeadlines();
-  const ticker = news.length ? `<section class="ticker" aria-label="This week's headlines">
+  const ticker = news.length ? `<section class="ticker" aria-label="This week's headlines" style="--c:${news[0].lg.color}">
       <div class="tk-head"><span class="live-dot">Headlines</span><span class="muted">${[...new Set(news.map(h => "Week " + h.wk))].join(" · ")}</span></div>
       <div class="tk-stage">${news.map((h, i) => `<a class="tk-item${i ? "" : " on"}" style="--c:${h.lg.color}" ${go(`${h.lg.id}/${h.s.year}/week-${h.wk}/${h.win}`)}>
         <span class="tk-meta"><span class="lgtag" style="--c:${h.lg.color}">${esc(h.lg.short)}</span> Week ${h.wk}</span>
@@ -1299,6 +1298,7 @@ function startTicker(root) {
   const show = n => {
     i = (n + items.length) % items.length;
     items.forEach((el, k) => el.classList.toggle("on", k === i));
+    box.style.setProperty("--c", items[i].style.getPropertyValue("--c"));
     dots.forEach((d, k) => d.setAttribute("aria-pressed", String(k === i)));
   };
   dots.forEach(d => d.onclick = () => show(+d.dataset.tk));
@@ -1396,7 +1396,7 @@ function seasonHighs(s) {
 function recordsView(lg) {
   const years = [...lg.seasons].reverse().map(s => ({ s, h: seasonHighs(s) })).filter(({ h }) => h.season || h.week || h.player);
   if (!years.length) return "";
-  const best = k => years.reduce((top, y) => y.h[k] && (!top || y.h[k].pts > top.h[k].pts) ? y : top, null);
+  const best = k => years.reduce((top, y) => y.h[k] && y.h[k].pts != null && (!top || y.h[k].pts > top.h[k].pts) ? y : top, null);
   const tops = { season: best("season"), week: best("week"), player: best("player") };
   const crown = (y, k) => years.length > 1 && tops[k] === y ?` <span class="badge-s gold">League record</span>` : "";
   const cell = (y, k) => {
@@ -1406,7 +1406,10 @@ function recordsView(lg) {
     const who = k === "player"
       ? `<span class="rp">${playerTag(x.player)}</span>${x.id ? `<span class="muted rsub">for ${esc(teamName(y.s, x.id))}${x.bench ? " (on the bench)" : ""}</span>` : ""}`
       : mgrTeam(y.s, x.id);
-    return `<td><div class="rec-cell">${who}<span class="rpts num">${pts(x.pts)}</span><span class="muted rsub">${k === "season" ? "points" + live : "Week " + (x.week || "?")}</span>${crown(y, k)}</div></td>`;
+    // A leader whose total wasn't recorded still shows, just without the number.
+    const num = x.pts == null ? "" : `<span class="rpts num">${pts(x.pts)}</span>`;
+    const sub = k === "season" ? (x.pts == null ? "led the league" : "points" + live) : x.week ? "Week " + x.week : "";
+    return `<td><div class="rec-cell">${who}${num}${sub ? `<span class="muted rsub">${sub}</span>` : ""}${crown(y, k)}</div></td>`;
   };
   return `<section class="section">
     <h2 class="sec-title">Records by year</h2>
