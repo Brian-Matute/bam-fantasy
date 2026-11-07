@@ -442,6 +442,7 @@ footer .wrap { padding-block: 22px; display: flex; flex-wrap: wrap; gap: 8px 20p
 .mgr { display: inline-flex; align-items: center; gap: 10px; min-width: 0; color: var(--ink); text-decoration: none; font-weight: 600; }
 .mgr:hover { color: var(--neon); }
 .mgr span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tmname { margin: -6px 0 0 46px; font-size: 12px; color: var(--muted); font-style: italic; white-space: nowrap; }
 
 /* Champion hero (season) */
 .crown-hero { position: relative; overflow: hidden; border-radius: 20px; padding: 26px; display: grid; gap: 18px; border: 1px solid color-mix(in srgb, var(--gold) 50%, var(--line));
@@ -810,7 +811,7 @@ function build(t) {
     const s = season(r.league, r.year), id = who(r.manager, s); if (!s || !id) continue;
     // A roster row with no wins, losses or ties yet means "played this season, record not added yet".
     const hasRec = [r.wins, r.losses, r.ties].some(v => v !== "" && v != null);
-    s.standings.push({ id, hasRec, w: int0(r.wins), l: int0(r.losses), t: int0(r.ties), pf: numOrNull(r.pointsfor), pa: numOrNull(r.pointsagainst), rank: numOrNull(r.rank), finish: numOrNull(r.finish), seed: numOrNull(r.seed), madePlayoffs: yesNo(r.madeplayoffs), playoffWins: numOrNull(r.playoffwins) });
+    s.standings.push({ id, hasRec, team: r.teamname || "", w: int0(r.wins), l: int0(r.losses), t: int0(r.ties), pf: numOrNull(r.pointsfor), pa: numOrNull(r.pointsagainst), rank: numOrNull(r.rank), finish: numOrNull(r.finish), seed: numOrNull(r.seed), madePlayoffs: yesNo(r.madeplayoffs), playoffWins: numOrNull(r.playoffwins) });
   }
   for (const r of t.Games) {
     const s = season(r.league, r.year), wk = int0(r.week); if (!s || !wk) continue;
@@ -1558,9 +1559,11 @@ function seasonView(lg, s, tab, focus) {
     .sort((a, b) => (a.rank || 99) - (b.rank || 99) || (b.w + b.t / 2) - (a.w + a.t / 2) || (b.pf || 0) - (a.pf || 0) || (a.finish || 99) - (b.finish || 99) || teamName(s, a.id).localeCompare(teamName(s, b.id)));
   const anyRec = rows.some(x => x.hasRec || x.rank || x.finish);
   const badge = x => x.id === s.champion ? `<span class="badge-s gold">Champion</span>` : x.id === s.runnerUp ? `<span class="badge-s silver">Runner-up</span>` : x.madePlayoffs ? `<span class="badge-s po">Playoffs</span>` : "";
+  // Final place after the playoffs, shown as its own column when the season has them.
+  const anyFinish = s.status !== "in-progress" && rows.some(x => x.finish);
   const standings = rows.length
-    ? `<div class="tablewrap"><table><thead><tr><th class="rk">#</th><th>Manager</th><th class="n">Record</th><th class="n">Win %</th><th class="n">Points for</th><th class="n">Points against</th><th>Result</th></tr></thead><tbody>
-      ${rows.map((x, i) => `<tr ${stagger(i)}><td class="rk ${x.id === s.champion ? "gold" : ""}">${x.rank || (anyRec ? i + 1 : "—")}</td><td>${mgrTeam(s, x.id)}</td><td class="n">${x.hasRec ? rec(x.w, x.l, x.t) : "—"}</td><td class="n">${x.hasRec ? pct(x) : "—"}</td><td class="n">${pts(x.pf)}</td><td class="n">${pts(x.pa)}</td><td>${badge(x)}</td></tr>`).join("")}
+    ? `<div class="tablewrap"><table><thead><tr><th class="rk">#</th><th>Manager</th><th class="n">Record</th><th class="n">Win %</th><th class="n">Points for</th><th class="n">Points against</th>${anyFinish ? `<th class="n">Final</th>` : ""}<th>Result</th></tr></thead><tbody>
+      ${rows.map((x, i) => `<tr ${stagger(i)}><td class="rk ${x.id === s.champion ? "gold" : ""}">${x.rank || (anyRec ? i + 1 : "—")}</td><td>${mgrTeam(s, x.id)}${x.team ? `<div class="tmname">${esc(x.team)}</div>` : ""}</td><td class="n">${x.hasRec ? rec(x.w, x.l, x.t) : "—"}</td><td class="n">${x.hasRec ? pct(x) : "—"}</td><td class="n">${pts(x.pf)}</td><td class="n">${pts(x.pa)}</td>${anyFinish ? `<td class="n">${x.finish ? ordinal(x.finish) : "—"}</td>` : ""}<td>${badge(x)}</td></tr>`).join("")}
       </tbody></table></div>
       ${anyRec ? "" : `<p class="muted" style="font-size:13px">The ${rows.length} teams that played this season. Records, points and finishes go in once they're added.</p>`}`
     : soon("Standings coming soon", "Each manager's record, points for and points against go here, with their headshot.");
