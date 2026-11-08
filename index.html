@@ -566,6 +566,14 @@ details.mu > summary .vs { font-family: var(--f-display); font-size: 11px; lette
 .rec-cell { display: grid; gap: 3px; justify-items: start; }
 .rec-cell .rpts { font-size: 20px; color: var(--ink); }
 .rec-cell .rsub { font-size: 12px; }
+.reccards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-bottom: 12px; }
+.reccard { align-content: start; gap: 8px; }
+.reccard .holders { display: grid; gap: 6px; }
+.reccard .rsub { display: block; font-size: 12px; margin: 2px 0 0 46px; }
+.reccard .runners { margin: 4px 0 0; padding: 8px 0 0 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink); display: grid; gap: 3px; }
+.reccard .runners .num { font-weight: 700; }
+table tr.cut-live td { border-bottom: 2px dashed color-mix(in srgb, var(--c, var(--neon)) 60%, transparent); }
+table tr.cut-final td { border-bottom: 2px solid color-mix(in srgb, var(--c, var(--neon)) 80%, transparent); }
 .trade .when .lgtag { margin-right: 4px; vertical-align: 1px; }
 /* Playoff odds */
 .odds { display: flex; align-items: center; gap: 10px; min-width: 150px; }
@@ -1121,7 +1129,7 @@ function parse(r) {
   if (old && !findLeague(p[0]) && findLeague(old[1])) { key = old[1]; sub = old[2]; }
   const lg = findLeague(key);
   if (!lg) return { v: "home" };
-  if (sub === "all-time" || sub === "alltime") return { v: "alltime", lg };
+  if (sub === "all-time" || sub === "alltime") return { v: "alltime", lg, tab: tab === "records" ? "records" : "standings" };
   const s = lg.seasons.find(x => x.year === +sub);
   // gridiron/2026/week-8/colby opens Weeks with that week's matchup (the one Colby played in) already open.
   const wm = /^week-(\d+)$/.exec(tab || "");
@@ -1133,7 +1141,7 @@ function routeOf(p) {
   if (p.v === "players") return "players";
   if (p.v === "player") return "players/" + p.id + (p.tab === "trades" ? "/trades" : "");
   if (p.v === "league") return p.lg.id;
-  if (p.v === "alltime") return p.lg.id + "/all-time";
+  if (p.v === "alltime") return p.lg.id + "/all-time" + (p.tab === "records" ? "/records" : "");
   if (p.v === "season") return p.lg.id + "/" + p.s.year + (p.focus ? `/week-${p.focus.week}${p.focus.id ? "/" + p.focus.id : ""}` : p.tab !== "weeks" ? "/" + p.tab : "");
   return "home";
 }
@@ -1385,28 +1393,29 @@ function weekHeadlines() {
       const wb = before[win] || { rank: 99, w: 0, l: 0, streak: 0 }, lb = before[lose] || { rank: 99, w: 0, l: 0, streak: 0 };
       const wa = after[win], la = after[lose];
       const score = `${pts(ws)}–${pts(ls)}`;
-      if (ws === ls) return { lg, s, wk, win, lose, text: `${W} and ${Lo} battle to a ${score} tie.` };
+      if (ws === ls) return { lg, s, wk, win, lose, imp: 45, text: `${W} and ${Lo} battle to a ${score} tie.` };
       const m = ws - ls;
       const verb = m >= 50 ? "demolishes" : m >= 30 ? "rolls past" : m >= 15 ? "beats" : m >= 5 ? "gets past" : "edges";
-      const tail =
-        wa.rank === 1 && wb.rank !== 1 ? "to take over 1st place"
-        : lb.rank === 1 && la.rank !== 1 ? `, knocking ${Lo} out of 1st`
-        : lb.l === 0 && lb.w >= 2 ? `, handing ${Lo} a first loss`
-        : wa.rank === 1 ? "to hold onto the 1 seed"
-        : wa.streak >= 3 ? `for a ${ordinal(wa.streak)} straight win`
-        : wa.rank <= po && wb.rank > po ? "to climb into a playoff spot"
-        : lb.rank <= po && la.rank > po ? `, pushing ${Lo} out of a playoff spot`
-        : la.streak <= -3 ? `, sending ${Lo} to a ${ordinal(-la.streak)} straight loss`
-        : ws === scores[0] && scores.length > 4 ? "behind the week's top score"
-        : `to move to ${rec(wa.w, wa.l, wa.t)}`;
-      return { lg, s, wk, win, lose, text: `${W} ${verb} ${Lo} ${score}${tail.startsWith(",") ? "" : " "}${tail}.` };
+      // Each ending has a weight for how big the story is; the first one that fits is used.
+      const [imp, tail] =
+        wa.rank === 1 && wb.rank !== 1 ? [100, "to take over 1st place"]
+        : lb.rank === 1 && la.rank !== 1 ? [95, `, knocking ${Lo} out of 1st`]
+        : lb.l === 0 && lb.w >= 2 ? [85, `, handing ${Lo} a first loss`]
+        : wa.rank <= po && wb.rank > po ? [75, "to climb into a playoff spot"]
+        : lb.rank <= po && la.rank > po ? [72, `, pushing ${Lo} out of a playoff spot`]
+        : wa.rank === 1 ? [60, "to hold onto the 1 seed"]
+        : wa.streak >= 3 ? [45 + wa.streak, `for a ${ordinal(wa.streak)} straight win`]
+        : la.streak <= -3 ? [40 - la.streak, `, sending ${Lo} to a ${ordinal(-la.streak)} straight loss`]
+        : ws === scores[0] && scores.length > 4 ? [35, "behind the week's top score"]
+        : [10, `to move to ${rec(wa.w, wa.l, wa.t)}`];
+      // Within the same kind of story, a blowout or a game between top teams counts for more.
+      const bonus = Math.min(m, 60) / 10 + Math.max(0, 12 - wb.rank - lb.rank) / 2;
+      return { lg, s, wk, win, lose, imp: imp + bonus, text: `${W} ${verb} ${Lo} ${score}${tail.startsWith(",") ? "" : " "}${tail}.` };
     });
-    perLeague.push(items);
+    perLeague.push(...items);
   }
-  // Take turns between leagues so one league's games don't all run back to back.
-  const out = [];
-  for (let i = 0; perLeague.some(x => x[i]); i++) perLeague.forEach(x => x[i] && out.push(x[i]));
-  return out;
+  // Biggest story first, across every league.
+  return perLeague.sort((a, b) => b.imp - a.imp);
 }
 let tickerTimer = null;
 function startTicker(root) {
@@ -1461,7 +1470,39 @@ function leagueView(lg) {
   </div>`;
 }
 
-function allTimeView(lg) {
+/* Single-season records across every finished season: the holder (ties share it) plus the next two. */
+function seasonRecords(lg) {
+  const all = lg.seasons.filter(s => s.status !== "in-progress").flatMap(s => s.standings.map(x => ({ s, x })));
+  const games = x => x.w + x.l + x.t, wp = x => (x.w + x.t / 2) / games(x);
+  const withRec = all.filter(({ x }) => x.hasRec && games(x));
+  const withPf = all.filter(({ x }) => x.pf != null), withPa = all.filter(({ x }) => x.pa != null);
+  const defs = [
+    { k: "Most points, one season", list: withPf, by: (a, b) => b.x.pf - a.x.pf, v: ({ x }) => pts(x.pf), same: (a, b) => a.x.pf === b.x.pf },
+    { k: "Fewest points, one season", list: withPf, by: (a, b) => a.x.pf - b.x.pf, v: ({ x }) => pts(x.pf), same: (a, b) => a.x.pf === b.x.pf },
+    // Records compare on win % (seasons weren't all the same length); more points breaks a tie.
+    { k: "Best regular season", list: withRec, by: (a, b) => wp(b.x) - wp(a.x) || (b.x.pf || 0) - (a.x.pf || 0), v: ({ x }) => rec(x.w, x.l, x.t), same: (a, b) => wp(a.x) === wp(b.x) && a.x.pf === b.x.pf },
+    { k: "Worst regular season", list: withRec, by: (a, b) => wp(a.x) - wp(b.x) || (a.x.pf || 0) - (b.x.pf || 0), v: ({ x }) => rec(x.w, x.l, x.t), same: (a, b) => wp(a.x) === wp(b.x) && a.x.pf === b.x.pf },
+    { k: "Most points against, one season", list: withPa, by: (a, b) => b.x.pa - a.x.pa, v: ({ x }) => pts(x.pa), same: (a, b) => a.x.pa === b.x.pa },
+    { k: "Fewest points against, one season", list: withPa, by: (a, b) => a.x.pa - b.x.pa, v: ({ x }) => pts(x.pa), same: (a, b) => a.x.pa === b.x.pa }
+  ];
+  return defs.filter(d => d.list.length).map(d => {
+    const sorted = [...d.list].sort(d.by), holders = sorted.filter(e => d.same(e, sorted[0]));
+    return { ...d, holders, next: sorted.slice(holders.length, holders.length + 2) };
+  });
+}
+function recordCardsView(lg) {
+  const recs = seasonRecords(lg);
+  if (!recs.length) return soon("Records coming soon", "Single-season records fill in once finished seasons have records and points on the Standings tab.");
+  const who = ({ s, x }) => `${mgrTeam(s, x.id)}<span class="muted rsub">${x.team ? esc(x.team) + " · " : ""}<a ${go(lg.id + "/" + s.year)}>${s.year}</a></span>`;
+  return `<div class="reccards">${recs.map((r, i) => `<div class="tile reccard ${i === 0 || i === 2 ? "gold" : ""}" ${stagger(i, 60)}>
+      <span class="k">${r.k}</span><span class="v num">${r.v(r.holders[0])}</span>
+      <div class="holders">${r.holders.map(who).join("")}</div>
+      ${r.next.length ? `<ol class="runners" start="${r.holders.length + 1}">${r.next.map(e => `<li><span class="num">${r.v(e)}</span> ${esc(teamName(e.s, e.x.id))} <span class="muted">${e.s.year}</span></li>`).join("")}</ol>` : ""}
+    </div>`).join("")}</div>
+    <p class="muted" style="font-size:13px">Finished seasons only. Records compare on win %, since some seasons were shorter. Under each record are the next closest.</p>`;
+}
+
+function allTimeView(lg, tab = "standings") {
   const roster = leagueRoster(lg).map(id => leagueStats(lg, id))
     // Titles, then finals, then total wins (fewer losses breaks a tie), then points.
     .sort((a, b) => b.titles - a.titles || b.finals - a.finals || (b.w + b.t / 2) - (a.w + a.t / 2) || a.l - b.l || b.pf - a.pf || nm(a.id).localeCompare(nm(b.id)));
@@ -1482,6 +1523,9 @@ function allTimeView(lg) {
       <div class="wall-title"><h2>Champions</h2><span class="muted">${yearSpan(lg)} · scroll for every season →</span></div>
       <div class="wall-track">${plaques}</div>
     </section>
+    <nav class="tabs" aria-label="All-time sections">${[["standings", "All-time standings"], ["records", "All-time records"]].map(([k, label]) =>
+      `<a ${go(lg.id + "/all-time" + (k === "records" ? "/records" : ""))}${tab === k ? ' aria-current="page"' : ""}>${label}</a>`).join("")}</nav>
+    ${tab === "records" ? `<section class="section"><h2 class="sec-title">Single-season records</h2>${recordCardsView(lg)}</section>${recordsView(lg)}` : `
     <section class="section">
       <h2 class="sec-title">All-time standings</h2>
       ${roster.length ? `<div class="tablewrap"><table><thead><tr><th class="rk">#</th><th>Manager</th><th class="n">Seasons</th><th class="n">Record</th><th class="n">Titles</th><th class="n">Finals</th><th class="n">Playoff W</th><th class="n">Playoff apps</th><th class="n">Points for</th><th class="n">Points against</th></tr></thead><tbody>
@@ -1491,8 +1535,7 @@ function allTimeView(lg) {
         ${anyStats ? "" : `<p class="muted" style="font-size:14px">Records fill in from each season's standings. Titles and finals come from the Seasons tab.</p>`}`
         : soon("Managers coming soon", "Add this league's managers on the Members tab and they'll be listed here with their all-time numbers.")}
       <p class="muted" style="font-size:13px">Titles = championships won. Finals = championship game appearances (won or lost).</p>
-    </section>
-    ${recordsView(lg)}
+    </section>`}
   </div>`;
 }
 
@@ -1561,9 +1604,14 @@ function seasonView(lg, s, tab, focus) {
   const badge = x => x.id === s.champion ? `<span class="badge-s gold">Champion</span>` : x.id === s.runnerUp ? `<span class="badge-s silver">Runner-up</span>` : x.madePlayoffs ? `<span class="badge-s po">Playoffs</span>` : "";
   // Final place after the playoffs, shown as its own column when the season has them.
   const anyFinish = s.status !== "in-progress" && rows.some(x => x.finish);
+  // The playoff line under the last spot: dashed while the season is live, solid once it's decided.
+  // A finished season only gets it when the top rows are exactly the teams that made it.
+  const spots = lg.playoffTeams || 6;
+  const cut = rows.length > spots && (live || rows.slice(0, spots).every(x => x.madePlayoffs) && !rows.slice(spots).some(x => x.madePlayoffs))
+    ? spots - 1 : -1;
   const standings = rows.length
     ? `<div class="tablewrap"><table><thead><tr><th class="rk">#</th><th>Manager</th><th class="n">Record</th><th class="n">Win %</th><th class="n">Points for</th><th class="n">Points against</th>${anyFinish ? `<th class="n">Final</th>` : ""}<th>Result</th></tr></thead><tbody>
-      ${rows.map((x, i) => `<tr ${stagger(i)}><td class="rk ${x.id === s.champion ? "gold" : ""}">${x.rank || (anyRec ? i + 1 : "—")}</td><td>${mgrTeam(s, x.id)}${x.team ? `<div class="tmname">${esc(x.team)}</div>` : ""}</td><td class="n">${x.hasRec ? rec(x.w, x.l, x.t) : "—"}</td><td class="n">${x.hasRec ? pct(x) : "—"}</td><td class="n">${pts(x.pf)}</td><td class="n">${pts(x.pa)}</td>${anyFinish ? `<td class="n">${x.finish ? ordinal(x.finish) : "—"}</td>` : ""}<td>${badge(x)}</td></tr>`).join("")}
+      ${rows.map((x, i) => `<tr ${stagger(i)}${i === cut ? ` class="${live ? "cut-live" : "cut-final"}"` : ""}><td class="rk ${x.id === s.champion ? "gold" : ""}">${x.rank || (anyRec ? i + 1 : "—")}</td><td>${mgrTeam(s, x.id)}${x.team ? `<div class="tmname">${esc(x.team)}</div>` : ""}</td><td class="n">${x.hasRec ? rec(x.w, x.l, x.t) : "—"}</td><td class="n">${x.hasRec ? pct(x) : "—"}</td><td class="n">${pts(x.pf)}</td><td class="n">${pts(x.pa)}</td>${anyFinish ? `<td class="n">${x.finish ? ordinal(x.finish) : "—"}</td>` : ""}<td>${badge(x)}</td></tr>`).join("")}
       </tbody></table></div>
       ${anyRec ? "" : `<p class="muted" style="font-size:13px">The ${rows.length} teams that played this season. Records, points and finishes go in once they're added.</p>`}`
     : soon("Standings coming soon", "Each manager's record, points for and points against go here, with their headshot.");
@@ -1922,7 +1970,7 @@ function render() {
   if (p.v === "home") app.innerHTML = homeView();
   else if (p.v === "players") app.innerHTML = playersView();
   else if (p.v === "player") app.innerHTML = playerView(p.id, p.tab);
-  else if (p.v === "alltime") app.innerHTML = allTimeView(p.lg);
+  else if (p.v === "alltime") app.innerHTML = allTimeView(p.lg, p.tab);
   else if (p.v === "season") app.innerHTML = seasonView(p.lg, p.s, p.tab, p.focus);
   else app.innerHTML = leagueView(p.lg);
   fitScenes();
