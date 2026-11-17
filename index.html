@@ -601,6 +601,10 @@ table tr.cut-final td { border-bottom: 2px solid color-mix(in srgb, var(--c, var
 .tk-dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: var(--c); opacity: .3; cursor: pointer; }
 .tk-dots button[aria-pressed="true"] { opacity: 1; }
 .mu.focus { scroll-margin-top: 96px; }
+.mu.goty > summary { border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255, 209, 102, .55); background: radial-gradient(320px 90px at 50% 0%, rgba(255, 209, 102, .14), transparent 70%); }
+.mu.goty .vs { color: var(--gold); text-shadow: 0 0 12px rgba(255, 209, 102, .5); white-space: nowrap; }
+.tk-meta .badge-s { display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; vertical-align: middle; }
+.tk-meta .badge-s .ico { width: 14px; height: 14px; }
 .mu.focus > summary { box-shadow: inset 0 0 0 1px var(--c, var(--neon)), 0 0 18px color-mix(in srgb, var(--c, var(--neon)) 40%, transparent); border-radius: 12px; }
 @media (max-width: 560px) { .tk-faces .av { width: 40px; height: 40px; font-size: 14px; } .tk-stage { min-height: 120px; } }
 @media (prefers-reduced-motion: reduce) { .tk-item { transition: none; transform: none; } }
@@ -806,6 +810,9 @@ function build(t) {
     s.champion = who(r.champion, s);
     s.runnerUp = who(r.runnerup, s);
     s.lore = r.lore || "";
+    // Game Of The Year, typed like "Week 10: Brian vs Sage": that matchup gets a gold tag and leads the headlines.
+    const gm = /week\s*(\d+)\s*:?\s*(.+?)\s+(?:vs\.?|v\.?|and|-)\s+(.+)/i.exec(r.gameoftheyear || "");
+    s.goty = gm ? { week: +gm[1], a: who(gm[2].trim(), s), b: who(gm[3].trim(), s) } : null;
     const cs = numOrNull(r.championscore), rs = numOrNull(r.runnerupscore);
     if (s.champion && s.runnerUp && (cs != null || rs != null)) s.championship = { week: numOrNull(r.championshipweek), winner: { id: s.champion, score: cs }, loser: { id: s.runnerUp, score: rs } };
     // League highs typed in for seasons without full data; they win over what the site works out itself.
@@ -861,6 +868,7 @@ const winnerOf = g => g.homeScore == null || g.awayScore == null || g.homeScore 
 // Everyone on a team that season (two people for a co-managed team), and how to show its name.
 const teamIds = (s, id) => (id && s.co && s.co[id]) || (id ? [id] : []);
 const onTeam = (s, teamId, id) => teamIds(s, teamId).includes(id);
+const isGoty = (s, g) => !!(s.goty && g.week === s.goty.week && [g.home, g.away].sort().join("|") === [s.goty.a, s.goty.b].sort().join("|"));
 const teamName = (s, id) => teamIds(s, id).map(nm).join(" & ") || "—";
 const teamLink = (s, id) => teamIds(s, id).map(plink).join(" &amp; ") || "—";
 const mgrTeam = (s, id, size) => {
@@ -1195,7 +1203,7 @@ function homeView() {
   const ticker = news.length ? `<section class="ticker" aria-label="This week's headlines" style="--c:${news[0].lg.color}">
       <div class="tk-head"><span class="live-dot">Headlines</span><span class="muted">${[...new Set(news.map(h => "Week " + h.wk))].join(" · ")}</span></div>
       <div class="tk-stage">${news.map((h, i) => `<a class="tk-item${i ? "" : " on"}" style="--c:${h.lg.color}" ${go(`${h.lg.id}/${h.s.year}/week-${h.wk}/${h.win}`)}>
-        <span class="tk-meta"><span class="lgtag" style="--c:${h.lg.color}">${esc(h.lg.short)}</span> Week ${h.wk}</span>
+        <span class="tk-meta"><span class="lgtag" style="--c:${h.lg.color}">${esc(h.lg.short)}</span> Week ${h.wk}${h.goty ? ` <span class="badge-s gold">${trophy("ico", "gold")}Game of the Year</span>` : ""}</span>
         <span class="tk-faces">${av(h.win, "lg")}<span class="tk-vs">def.</span>${av(h.lose, "lg")}</span>
         <p class="tk-text">${h.text}</p></a>`).join("")}</div>
       <div class="tk-dots">${news.map((h, i) => `<button type="button" data-tk="${i}" aria-label="Headline ${i + 1}" aria-pressed="${!i}" style="--c:${h.lg.color}"></button>`).join("")}</div>
@@ -1397,7 +1405,7 @@ function weekHeadlines() {
       const m = ws - ls;
       const verb = m >= 50 ? "demolishes" : m >= 30 ? "rolls past" : m >= 15 ? "beats" : m >= 5 ? "gets past" : "edges";
       // Each ending has a weight for how big the story is; the first one that fits is used.
-      const [imp, tail] =
+      let [imp, tail] =
         wa.rank === 1 && wb.rank !== 1 ? [100, "to take over 1st place"]
         : lb.rank === 1 && la.rank !== 1 ? [95, `, knocking ${Lo} out of 1st`]
         : lb.l === 0 && lb.w >= 2 ? [85, `, handing ${Lo} a first loss`]
@@ -1410,7 +1418,10 @@ function weekHeadlines() {
         : [10, `to move to ${rec(wa.w, wa.l, wa.t)}`];
       // Within the same kind of story, a blowout or a game between top teams counts for more.
       const bonus = Math.min(m, 60) / 10 + Math.max(0, 12 - wb.rank - lb.rank) / 2;
-      return { lg, s, wk, win, lose, imp: imp + bonus, text: `${W} ${verb} ${Lo} ${score}${tail.startsWith(",") ? "" : " "}${tail}.` };
+      // The league's Game of the Year always leads.
+      const goty = isGoty(s, g);
+      if (goty && imp === 10) tail = `, a ${m.toFixed(2)}-point thriller`;
+      return { lg, s, wk, win, lose, goty, imp: goty ? 1000 : imp + bonus, text: `${W} ${verb} ${Lo} ${score}${tail.startsWith(",") ? "" : " "}${tail}.` };
     });
     perLeague.push(...items);
   }
@@ -1730,12 +1741,13 @@ function weeksView(lg, s, focus) {
     const round = (games.find(g => isPlayoffRound(g.round)) || {}).round;
     const fw = focus && focus.week === w;
     return `<details class="wk" ${stagger(i, 25)}${fw ? " open" : ""}><summary><span class="wn">Week ${w}</span>${round ? `<span class="round">${esc(round)}</span>` : ""}
-      <span class="meta">${games.length ? `${games.length} matchup${games.length === 1 ? "" : "s"}` : "No results yet"}</span><span class="chev"></span></summary>
+      <span class="meta">${games.some(g => isGoty(s, g)) ? `<span class="badge-s gold">Game of the Year</span> ` : ""}${games.length ? `${games.length} matchup${games.length === 1 ? "" : "s"}` : "No results yet"}</span><span class="chev"></span></summary>
       <div class="wk-body">${games.length ? games.map(g => {
         const win = winnerOf(g);
         const side = (id, sc, r) => `<span class="side ${r ? "r" : ""} ${win ? (win === id ? "won" : "lost") : ""}">${av(id)}<span class="nm">${esc(teamName(s, id))}</span><span class="sc">${pts(sc)}</span></span>`;
         const hit = fw && focus.id && (onTeam(s, g.home, focus.id) || onTeam(s, g.away, focus.id));
-        return `<details class="mu${hit ? " focus" : ""}"${hit ? ' id="focus-mu" open' : ""}><summary>${side(g.home, g.homeScore)}<span class="vs">${g.round && !/regular/i.test(g.round) ? esc(g.round) : "VS"}</span>${side(g.away, g.awayScore, true)}<span class="chev"></span></summary>
+        const goty = isGoty(s, g);
+        return `<details class="mu${hit ? " focus" : ""}${goty ? " goty" : ""}"${hit ? ' id="focus-mu" open' : ""}><summary>${side(g.home, g.homeScore)}<span class="vs">${goty ? "Game of the Year" : g.round && !/regular/i.test(g.round) ? esc(g.round) : "VS"}</span>${side(g.away, g.awayScore, true)}<span class="chev"></span></summary>
           <div class="lineups">${lineupTable(s.lineups[w + "|" + g.home], teamName(s, g.home))}${lineupTable(s.lineups[w + "|" + g.away], teamName(s, g.away))}</div></details>`;
       }).join("") : `<p class="muted" style="font-size:14px;margin:4px">Week ${w} matchups haven't been added yet.</p>`}</div></details>`;
   }).join("")}</div>
